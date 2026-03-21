@@ -1,0 +1,8 @@
+.DS_Store
+.env
+config.sh
+logs/
+.rotation_index
+sheet-analyzer/
+tailscale-serve.json
+.claude/

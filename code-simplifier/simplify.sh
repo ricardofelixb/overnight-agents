@@ -23,7 +23,7 @@ LOG_FILE="$LOG_DIR/simplify_${TIMESTAMP}.log"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"; }
 
-# --- Pick next project (round-robin) ---
+# --- Pick next enabled project (round-robin, skipping disabled) ---
 if [[ -f "$STATE_FILE" ]]; then
   INDEX=$(cat "$STATE_FILE")
 else
@@ -31,18 +31,23 @@ else
 fi
 
 TOTAL=${#PROJECTS[@]}
-CURRENT_INDEX=$((INDEX % TOTAL))
-NEXT_INDEX=$(((INDEX + 1) % TOTAL))
-echo "$NEXT_INDEX" > "$STATE_FILE"
+FOUND=false
+for (( i=0; i<TOTAL; i++ )); do
+  CURRENT_INDEX=$(( (INDEX + i) % TOTAL ))
+  IFS=':' read -r PROJECT_PATH DEFAULT_BRANCH PROJECT_ENABLED <<< "${PROJECTS[$CURRENT_INDEX]}"
+  if [[ "${PROJECT_ENABLED:-true}" == "true" ]]; then
+    FOUND=true
+    echo $(( (CURRENT_INDEX + 1) % TOTAL )) > "$STATE_FILE"
+    break
+  fi
+done
 
-IFS=':' read -r PROJECT_PATH DEFAULT_BRANCH PROJECT_ENABLED <<< "${PROJECTS[$CURRENT_INDEX]}"
-PROJECT_NAME=$(basename "$PROJECT_PATH")
-
-# --- Skip disabled projects ---
-if [[ "${PROJECT_ENABLED:-true}" != "true" ]]; then
-  log "SKIPPED: $PROJECT_NAME is disabled"
+if [[ "$FOUND" != "true" ]]; then
+  log "SKIPPED: no enabled projects"
   exit 0
 fi
+
+PROJECT_NAME=$(basename "$PROJECT_PATH")
 BRANCH_NAME="${BRANCH_PREFIX}/$(date +%Y-%m-%d)"
 
 log "=== Code Simplifier ==="

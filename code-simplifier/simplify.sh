@@ -100,15 +100,30 @@ git checkout -b "$BRANCH_NAME" >> "$LOG_FILE" 2>&1
 log "Created branch $BRANCH_NAME"
 
 # --- Build the prompt with substitutions ---
-PROMPT="${CLAUDE_PROMPT//\{\{PROJECT_PATH\}\}/$PROJECT_PATH}"
+if [[ "${USE_CODEX:-false}" == "true" ]]; then
+  RAW_PROMPT="$CODEX_PROMPT"
+else
+  RAW_PROMPT="$CLAUDE_PROMPT"
+fi
+PROMPT="${RAW_PROMPT//\{\{PROJECT_PATH\}\}/$PROJECT_PATH}"
 PROMPT="${PROMPT//\{\{DEFAULT_BRANCH\}\}/$DEFAULT_BRANCH}"
 PROMPT="${PROMPT//\{\{BRANCH_NAME\}\}/$BRANCH_NAME}"
 
-# --- Run Claude ---
-log "Starting Claude..."
-unset CLAUDECODE
-claude --dangerously-skip-permissions -p "$PROMPT" >> "$LOG_FILE" 2>&1
-EXIT_CODE=$?
+# --- Run agent ---
+if [[ "${USE_CODEX:-false}" == "true" ]]; then
+  log "Starting Codex (gpt-5.5)..."
+  codex exec \
+    --dangerously-bypass-approvals-and-sandbox \
+    -m "gpt-5.5" \
+    -C "$PROJECT_PATH" \
+    "$PROMPT" >> "$LOG_FILE" 2>&1
+  EXIT_CODE=$?
+else
+  log "Starting Claude..."
+  unset CLAUDECODE
+  claude --dangerously-skip-permissions --model 'claude-opus-4-7[1m]' -p "$PROMPT" >> "$LOG_FILE" 2>&1
+  EXIT_CODE=$?
+fi
 
 log "Claude exited with code $EXIT_CODE"
 

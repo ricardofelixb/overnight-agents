@@ -114,6 +114,7 @@ if [[ "${USE_CODEX:-false}" == "true" ]]; then
   log "Starting Codex (gpt-5.5)..."
   codex exec \
     --dangerously-bypass-approvals-and-sandbox \
+    -c 'model_reasoning_effort="high"' \
     -m "gpt-5.5" \
     -C "$PROJECT_PATH" \
     "$PROMPT" >> "$LOG_FILE" 2>&1
@@ -121,7 +122,7 @@ if [[ "${USE_CODEX:-false}" == "true" ]]; then
 else
   log "Starting Claude..."
   unset CLAUDECODE
-  claude --dangerously-skip-permissions --model 'claude-opus-4-7[1m]' -p "$PROMPT" >> "$LOG_FILE" 2>&1
+  claude --dangerously-skip-permissions --model 'claude-opus-4-8[1m]' --effort high -p "$PROMPT" >> "$LOG_FILE" 2>&1
   EXIT_CODE=$?
 fi
 

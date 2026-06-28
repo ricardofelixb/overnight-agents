@@ -5,7 +5,9 @@ set -euo pipefail
 export PATH="/Users/ricardo/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:$PATH"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/.env"
+if [[ -f "$SCRIPT_DIR/.env" ]]; then
+  source "$SCRIPT_DIR/.env"
+fi
 export CLAUDE_CODE_OAUTH_TOKEN
 export GH_TOKEN
 source "$SCRIPT_DIR/config.sh"

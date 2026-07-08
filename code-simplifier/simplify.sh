@@ -51,6 +51,7 @@ fi
 
 PROJECT_NAME=$(basename "$PROJECT_PATH")
 BRANCH_NAME="${BRANCH_PREFIX}/$(date +%Y-%m-%d)"
+RESUMING_EXISTING_BRANCH=false
 
 log "=== Code Simplifier ==="
 log "Project: $PROJECT_NAME ($PROJECT_PATH)"
@@ -72,34 +73,44 @@ fi
 # --- Prepare the repo ---
 cd "$PROJECT_PATH"
 
-# Abort if working tree is dirty (don't clobber in-progress work)
+CURRENT_BRANCH="$(git branch --show-current 2>/dev/null || true)"
+
+# Abort dirty user/default branches, but resume dirty simplifier branches.
 if [[ -n $(git status --porcelain 2>/dev/null) ]]; then
-  log "SKIPPED: working tree is dirty in $PROJECT_NAME — not touching it"
-  exit 0
+  if [[ "$CURRENT_BRANCH" == "$BRANCH_PREFIX/"* ]]; then
+    RESUMING_EXISTING_BRANCH=true
+    BRANCH_NAME="$CURRENT_BRANCH"
+    log "RESUMING: dirty simplifier branch $BRANCH_NAME"
+  else
+    log "SKIPPED: working tree is dirty on ${CURRENT_BRANCH:-unknown branch} in $PROJECT_NAME — not touching it"
+    exit 0
+  fi
 fi
 
-# Fetch, checkout default branch, pull latest
-git fetch origin >> "$LOG_FILE" 2>&1
-git checkout "$DEFAULT_BRANCH" >> "$LOG_FILE" 2>&1
-git pull origin "$DEFAULT_BRANCH" >> "$LOG_FILE" 2>&1
-log "Fetched and pulled latest $DEFAULT_BRANCH"
+if [[ "$RESUMING_EXISTING_BRANCH" != "true" ]]; then
+  # Fetch, checkout default branch, pull latest
+  git fetch origin >> "$LOG_FILE" 2>&1
+  git checkout "$DEFAULT_BRANCH" >> "$LOG_FILE" 2>&1
+  git pull origin "$DEFAULT_BRANCH" >> "$LOG_FILE" 2>&1
+  log "Fetched and pulled latest $DEFAULT_BRANCH"
 
-# Install dependencies (so linters/builds reflect current state)
-if [[ -f "pnpm-lock.yaml" ]]; then
-  pnpm install --frozen-lockfile >> "$LOG_FILE" 2>&1
-  log "Installed dependencies (pnpm)"
-elif [[ -f "uv.lock" ]]; then
-  uv sync >> "$LOG_FILE" 2>&1
-  log "Installed dependencies (uv)"
-fi
+  # Install dependencies (so linters/builds reflect current state)
+  if [[ -f "pnpm-lock.yaml" ]]; then
+    pnpm install --frozen-lockfile >> "$LOG_FILE" 2>&1
+    log "Installed dependencies (pnpm)"
+  elif [[ -f "uv.lock" ]]; then
+    uv sync >> "$LOG_FILE" 2>&1
+    log "Installed dependencies (uv)"
+  fi
 
-# Create and switch to cleanup branch
-if git show-ref --verify --quiet "refs/heads/$BRANCH_NAME" 2>/dev/null; then
-  log "Branch $BRANCH_NAME already exists, appending timestamp"
-  BRANCH_NAME="${BRANCH_NAME}-$(date +%H%M%S)"
+  # Create and switch to cleanup branch
+  if git show-ref --verify --quiet "refs/heads/$BRANCH_NAME" 2>/dev/null; then
+    log "Branch $BRANCH_NAME already exists, appending timestamp"
+    BRANCH_NAME="${BRANCH_NAME}-$(date +%H%M%S)"
+  fi
+  git checkout -b "$BRANCH_NAME" >> "$LOG_FILE" 2>&1
+  log "Created branch $BRANCH_NAME"
 fi
-git checkout -b "$BRANCH_NAME" >> "$LOG_FILE" 2>&1
-log "Created branch $BRANCH_NAME"
 
 # --- Build the prompt with substitutions ---
 if [[ "${USE_CODEX:-false}" == "true" ]]; then
@@ -110,8 +121,12 @@ fi
 PROMPT="${RAW_PROMPT//\{\{PROJECT_PATH\}\}/$PROJECT_PATH}"
 PROMPT="${PROMPT//\{\{DEFAULT_BRANCH\}\}/$DEFAULT_BRANCH}"
 PROMPT="${PROMPT//\{\{BRANCH_NAME\}\}/$BRANCH_NAME}"
+if [[ "$RESUMING_EXISTING_BRANCH" == "true" ]]; then
+  PROMPT="${PROMPT}"$'\n\n## Resume Context\n\n- The working tree already contained uncommitted changes on this simplifier branch before you started.\n- Start by reading `git diff` and continue, fix, validate, and ship that existing work instead of starting a separate folder.\n- Do not discard existing changes unless they are demonstrably wrong or replaced by a safer implementation.'
+fi
 
 # --- Run agent ---
+set +e
 if [[ "${USE_CODEX:-false}" == "true" ]]; then
   log "Starting Codex (gpt-5.5)..."
   codex exec \
@@ -124,18 +139,24 @@ if [[ "${USE_CODEX:-false}" == "true" ]]; then
 else
   log "Starting Claude..."
   unset CLAUDECODE
-  claude --dangerously-skip-permissions --model 'claude-opus-4-8[1m]' --effort high -p "$PROMPT" >> "$LOG_FILE" 2>&1
+  claude --dangerously-skip-permissions --model 'claude-sonnet-5[1m]' --effort high -p "$PROMPT" >> "$LOG_FILE" 2>&1
   EXIT_CODE=$?
 fi
+set -e
 
 log "Claude exited with code $EXIT_CODE"
 
 # --- Cleanup: return to default branch ---
 cd "$PROJECT_PATH"
-git checkout "$DEFAULT_BRANCH" >> "$LOG_FILE" 2>&1
-log "Returned to $DEFAULT_BRANCH"
+if [[ -n $(git status --porcelain 2>/dev/null) ]]; then
+  log "LEFT ON $BRANCH_NAME: working tree still has uncommitted changes for a future resume"
+else
+  git checkout "$DEFAULT_BRANCH" >> "$LOG_FILE" 2>&1
+  log "Returned to $DEFAULT_BRANCH"
+fi
 
 # --- Prune old logs (keep last 30) ---
 ls -1t "$LOG_DIR"/simplify_*.log 2>/dev/null | tail -n +31 | xargs rm -f 2>/dev/null || true
 
 log "=== Simplify complete ==="
+exit "$EXIT_CODE"

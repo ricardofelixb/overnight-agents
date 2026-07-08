@@ -139,7 +139,7 @@ if [[ "${USE_CODEX:-false}" == "true" ]]; then
 else
   log "Starting Claude..."
   unset CLAUDECODE
-  claude --dangerously-skip-permissions --model 'claude-sonnet-5[1m]' --effort high -p "$PROMPT" >> "$LOG_FILE" 2>&1
+  claude --dangerously-skip-permissions --model 'claude-sonnet-5[1m]' --effort medium -p "$PROMPT" >> "$LOG_FILE" 2>&1
   EXIT_CODE=$?
 fi
 set -e

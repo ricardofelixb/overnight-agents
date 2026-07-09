@@ -131,7 +131,7 @@ if [[ "${USE_CODEX:-false}" == "true" ]]; then
   log "Starting Codex (gpt-5.5)..."
   codex exec \
     --dangerously-bypass-approvals-and-sandbox \
-    -c 'model_reasoning_effort="high"' \
+    -c 'model_reasoning_effort="medium"' \
     -m "gpt-5.5" \
     -C "$PROJECT_PATH" \
     "$PROMPT" >> "$LOG_FILE" 2>&1

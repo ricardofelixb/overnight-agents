@@ -128,11 +128,11 @@ fi
 # --- Run agent ---
 set +e
 if [[ "${USE_CODEX:-false}" == "true" ]]; then
-  log "Starting Codex (gpt-5.5)..."
+  log "Starting Codex (gpt-5.6-sol)..."
   codex exec \
     --dangerously-bypass-approvals-and-sandbox \
     -c 'model_reasoning_effort="medium"' \
-    -m "gpt-5.5" \
+    -m "gpt-5.6-sol" \
     -C "$PROJECT_PATH" \
     "$PROMPT" >> "$LOG_FILE" 2>&1
   EXIT_CODE=$?

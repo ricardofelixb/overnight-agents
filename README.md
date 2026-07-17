@@ -84,7 +84,7 @@ Add `simplification.md` to `.gitignore`. Each run picks the next unchecked folde
    ./dead-code-sweeper/install-cron.sh
    ./code-simplifier/install-cron.sh
    ```
-7. Install the reviewer skill/provider bundle globally, then install its recovery and weekly-refresh schedules:
+7. Install the reviewer skill/provider bundle globally, then install its recovery and weekly provider-context refresh schedules:
    ```bash
    ./pr-reviewer/install.sh
    ./pr-reviewer/install-cron.sh
@@ -93,6 +93,10 @@ Add `simplification.md` to `.gitignore`. Each run picks the next unchecked folde
    ```bash
    ./pr-reviewer/install_launchd.py
    ```
+   The weekly refresh uses isolated temporary clones. It promotes audited provider
+   skills globally and runs `npx convex ai-files update` for each enabled Convex
+   project, publishing a hashed guidance snapshot without modifying the configured
+   source checkout.
 
 ## Requirements
 

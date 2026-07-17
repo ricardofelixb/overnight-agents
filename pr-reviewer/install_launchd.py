@@ -15,7 +15,7 @@ from typing import Any
 
 LABELS = {
     "com.overnight-agents.pr-reviewer": "reconcile.log",
-    "com.overnight-agents.pr-reviewer-skills": "skill-refresh.log",
+    "com.overnight-agents.pr-reviewer-skills": "context-refresh.log",
 }
 
 
@@ -83,14 +83,15 @@ def definitions(script_dir: Path) -> dict[str, dict[str, Any]]:
         {
             "ProgramArguments": [
                 python,
-                str(script_dir / "refresh_skills.py"),
+                str(script_dir / "refresh_context.py"),
+                "--config",
+                str(script_dir / "config.json"),
                 "--manifest",
                 str(script_dir / "provider-skills.json"),
                 "--state-root",
                 str(script_dir / "state"),
                 "--lock",
                 str(script_dir / "state" / "skills.lock.json"),
-                "--promote",
             ],
             "StartCalendarInterval": {"Weekday": 0, "Hour": 3, "Minute": 15},
         }

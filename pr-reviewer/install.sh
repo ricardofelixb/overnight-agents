@@ -25,10 +25,10 @@ rm -f "$TEMPORARY"
 ln -s "$CUSTOM_SKILL" "$TEMPORARY"
 mv -f "$TEMPORARY" "$DESTINATION"
 
-python3 "$SCRIPT_DIR/refresh_skills.py" \
+python3 "$SCRIPT_DIR/refresh_context.py" \
+  --config "$SCRIPT_DIR/config.json" \
   --manifest "$SCRIPT_DIR/provider-skills.json" \
   --state-root "$SCRIPT_DIR/state" \
-  --lock "$SCRIPT_DIR/state/skills.lock.json" \
-  --promote
+  --lock "$SCRIPT_DIR/state/skills.lock.json"
 
-echo "Installed the autonomous reviewer and promoted audited official provider skills globally."
+echo "Installed the autonomous reviewer and refreshed audited provider context globally."

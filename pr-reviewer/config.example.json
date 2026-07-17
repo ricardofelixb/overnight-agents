@@ -17,6 +17,7 @@
     "max_document_bytes": 5000000,
     "docs_max_age_hours": 24,
     "skill_max_age_days": 8,
+    "ai_files_max_age_days": 8,
     "validation_attempts": 2,
     "telegram_notifications_enabled": true,
     "validation_environment": {},

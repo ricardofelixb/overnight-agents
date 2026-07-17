@@ -21,7 +21,9 @@ class LaunchdTests(unittest.TestCase):
         self.assertEqual(recovery["StartInterval"], 1800)
         self.assertIn("--apply", recovery["ProgramArguments"])
         self.assertEqual(refresh["StartCalendarInterval"], {"Weekday": 0, "Hour": 3, "Minute": 15})
-        self.assertEqual(refresh["ProgramArguments"][-1], "--promote")
+        self.assertTrue(refresh["ProgramArguments"][1].endswith("refresh_context.py"))
+        self.assertIn("--config", refresh["ProgramArguments"])
+        self.assertNotIn("--promote", refresh["ProgramArguments"])
         self.assertNotIn("RunAtLoad", recovery)
 
 

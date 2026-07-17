@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT))
 from review import (
     ReviewFailure,
     Runner,
+    capture_ai_files_snapshot,
     capture_review_context,
     fetch_pr_at_head,
     format_review_comment,
@@ -146,6 +147,7 @@ class ReviewSafetyTests(unittest.TestCase):
             "skills_manifest": root / "skills.json",
             "review_context": root / "context.json",
             "validation_evidence": root / "validation.json",
+            "ai_files_manifest": root / "ai-files.json",
             "repairs_allowed": True,
         })
         self.assertIn("Spawn the three named specialist sub-agents concurrently", prompt)
@@ -154,6 +156,48 @@ class ReviewSafetyTests(unittest.TestCase):
         self.assertIn("repairs allowed: true", prompt)
         self.assertIn("trusted menus, not mandatory context", prompt)
         self.assertIn("Do not open every skill or document", prompt)
+        self.assertIn(str(root / "ai-files.json"), prompt)
+        self.assertIn("generated guidelines", prompt)
+
+    def test_convex_ai_files_snapshot_is_fresh_and_hash_verified(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            release = root / "state" / "ai-files" / "example" / "releases" / ("a" * 64)
+            guidelines = release / "convex" / "_generated" / "ai" / "guidelines.md"
+            guidelines.parent.mkdir(parents=True)
+            content = b"# Current Convex guidance\n"
+            guidelines.write_bytes(content)
+            manifest = {
+                "version": 1,
+                "project": "example",
+                "refreshed_at": datetime.now(timezone.utc).isoformat(),
+                "release_path": str(release),
+                "files": {
+                    "convex/_generated/ai/guidelines.md": {
+                        "bytes": len(content),
+                        "sha256": hashlib.sha256(content).hexdigest(),
+                    }
+                },
+            }
+            manifest_path = root / "state" / "ai-files" / "example" / "manifest.json"
+            manifest_path.write_text(json.dumps(manifest))
+            run_dir = root / "run"
+            run_dir.mkdir()
+            captured = capture_ai_files_snapshot(
+                {"state_root": str(root / "state"), "ai_files_max_age_days": 8},
+                "example",
+                ["convex"],
+                run_dir,
+            )
+            self.assertEqual(captured, run_dir / "convex-ai-files-manifest.json")
+            guidelines.write_text("tampered")
+            with self.assertRaisesRegex(ReviewFailure, "integrity mismatch"):
+                capture_ai_files_snapshot(
+                    {"state_root": str(root / "state"), "ai_files_max_age_days": 8},
+                    "example",
+                    ["convex"],
+                    run_dir,
+                )
 
     def test_comment_reports_clean_and_repaired_outcomes(self) -> None:
         clean = {

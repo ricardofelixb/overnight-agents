@@ -492,6 +492,55 @@ def validate_skill_lock(config: dict[str, Any], domains: list[str]) -> dict[str,
     return evidence
 
 
+def capture_ai_files_snapshot(
+    config: dict[str, Any],
+    project_name: str,
+    domains: list[str],
+    run_dir: Path,
+) -> Path | None:
+    if "convex" not in domains:
+        return None
+    snapshot_root = (Path(config["state_root"]) / "ai-files" / project_name).resolve()
+    manifest_path = snapshot_root / "manifest.json"
+    manifest = load_json(manifest_path)
+    if manifest.get("version") != 1 or manifest.get("project") != project_name:
+        raise ReviewFailure("invalid Convex AI-files snapshot manifest")
+    max_age = timedelta(days=int(config.get("ai_files_max_age_days", 8)))
+    if utc_now() - parse_time(manifest.get("refreshed_at", "")) > max_age:
+        raise ReviewFailure("Convex AI-files snapshot is stale")
+    release = Path(manifest.get("release_path", "")).resolve()
+    releases_root = (snapshot_root / "releases").resolve()
+    if releases_root != release.parent or not release.is_dir():
+        raise ReviewFailure("Convex AI-files snapshot release path is invalid")
+    files = manifest.get("files")
+    if not isinstance(files, dict) or "convex/_generated/ai/guidelines.md" not in files:
+        raise ReviewFailure("Convex AI-files snapshot has no generated guidelines")
+    actual_files = {
+        path.relative_to(release).as_posix()
+        for path in release.rglob("*")
+        if path.is_file()
+    }
+    if actual_files != set(files):
+        raise ReviewFailure("Convex AI-files snapshot file set does not match its manifest")
+    for relative, metadata in files.items():
+        if (
+            not isinstance(relative, str)
+            or Path(relative).is_absolute()
+            or Path(relative).as_posix().startswith("../")
+            or not isinstance(metadata, dict)
+        ):
+            raise ReviewFailure("Convex AI-files snapshot contains unsafe metadata")
+        path = release / relative
+        if path.is_symlink() or not path.is_file():
+            raise ReviewFailure(f"Convex AI-files snapshot file is invalid: {relative}")
+        content = path.read_bytes()
+        if len(content) != metadata.get("bytes") or hashlib.sha256(content).hexdigest() != metadata.get("sha256"):
+            raise ReviewFailure(f"Convex AI-files snapshot integrity mismatch: {relative}")
+    captured = run_dir / "convex-ai-files-manifest.json"
+    captured.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    return captured
+
+
 def tree_hash(root: Path) -> str:
     digest = hashlib.sha256()
     for path in sorted(item for item in root.rglob("*") if item.is_file()):
@@ -587,8 +636,14 @@ def orchestrator_prompt(
     skills_manifest: Path,
     review_context: Path,
     validation_evidence: Path,
+    ai_files_manifest: Path | None,
     repairs_allowed: bool,
 ) -> str:
+    ai_files_input = (
+        f"- trusted current Convex AI-files snapshot: {ai_files_manifest}\n"
+        if ai_files_manifest
+        else ""
+    )
     return f"""Use the autonomous PR review skill at {skill_path / 'SKILL.md'}.
 
 Run one complete orchestrated review-and-repair lifecycle for this exact pull request.
@@ -603,11 +658,13 @@ Immutable controller inputs:
 - trusted current official-docs candidate catalog: {docs_manifest}
 - trusted promoted provider-skills candidate catalog: {skills_manifest}
 - trusted controller validation evidence for the original head: {validation_evidence}
-- repairs allowed: {str(repairs_allowed).lower()}
+{ai_files_input}- repairs allowed: {str(repairs_allowed).lower()}
 
 Read the skill and its core protocol. Spawn the three named specialist sub-agents concurrently. They must inspect and report only; you own all edits. Reconcile their raw findings yourself.
 
 Provider catalogs are trusted menus, not mandatory context. Inspect their metadata, then let the concrete code question determine whether provider evidence is needed. Read only the smallest applicable router/topic skill and official document. Do not open every skill or document for a candidate domain, and do not report provider evidence you did not actually use.
+
+When a Convex AI-files snapshot is present and a concrete Convex question requires provider guidance, read its generated guidelines from the immutable release path recorded in that manifest. Treat the refreshed managed Convex guidance as current provider evidence while preserving repository-specific unmanaged instructions.
 
 Act on every proven, high-confidence, bounded improvement in the PR's behavioral slice, regardless of whether it was introduced by this PR, pre-existed at the base, or is a valid follow-up from PR artifacts. This includes correctness, security, reliability, performance, reuse, and worthwhile code hygiene. Official guidance is evidence, but it cannot invent product semantics.
 
@@ -632,6 +689,7 @@ def run_orchestrator(
     skills_manifest: Path,
     review_context: Path,
     validation_evidence: Path,
+    ai_files_manifest: Path | None,
     repairs_allowed: bool,
 ) -> dict[str, Any]:
     skill_path = Path(config["skill_path"])
@@ -680,6 +738,7 @@ def run_orchestrator(
                 skills_manifest=skills_manifest,
                 review_context=review_context,
                 validation_evidence=validation_evidence,
+                ai_files_manifest=ai_files_manifest,
                 repairs_allowed=repairs_allowed,
             ),
         ]
@@ -1060,6 +1119,12 @@ def execute(config_path: Path, project_name: str, pr_number: int, apply: bool, f
         reject_policy_changes(changed_files, project.get("protected_policy_patterns", []))
 
         candidate_domains = detect_domains(changed_files, diff)
+        ai_files_manifest = capture_ai_files_snapshot(
+            config | project,
+            project_name,
+            candidate_domains,
+            run_dir,
+        )
         skills_manifest = run_dir / "skills-manifest.json"
         skills_manifest.write_text(
             json.dumps(validate_skill_lock(config | project, candidate_domains), indent=2, sort_keys=True) + "\n"
@@ -1105,6 +1170,7 @@ def execute(config_path: Path, project_name: str, pr_number: int, apply: bool, f
             skills_manifest,
             review_context,
             validation_evidence,
+            ai_files_manifest,
             repairs_allowed,
         )
         validate_docs_manifest(config | project, docs_manifest, candidate_domains)

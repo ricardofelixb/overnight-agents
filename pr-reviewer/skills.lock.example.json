@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "generated_at": "2026-01-01T00:00:00+00:00",
+  "domains": {
+    "convex": [
+      {
+        "name": "convex-performance-audit",
+        "path": "/absolute/path/to/global/convex-performance-audit",
+        "source": "https://github.com/get-convex/agent-skills",
+        "revision": "40-character-commit-sha",
+        "updated_at": "2026-01-01T00:00:00+00:00",
+        "sha256": "64-character-content-sha256"
+      }
+    ],
+    "react": [
+      {
+        "name": "vercel-react-best-practices",
+        "path": "/absolute/path/to/global/vercel-react-best-practices",
+        "source": "https://github.com/vercel-labs/agent-skills",
+        "revision": "40-character-commit-sha",
+        "updated_at": "2026-01-01T00:00:00+00:00",
+        "sha256": "64-character-content-sha256"
+      }
+    ],
+    "workos": [
+      {
+        "name": "workos",
+        "path": "/absolute/path/to/global/workos",
+        "source": "https://github.com/workos/skills",
+        "revision": "40-character-commit-sha",
+        "updated_at": "2026-01-01T00:00:00+00:00",
+        "sha256": "64-character-content-sha256"
+      }
+    ]
+  }
+}

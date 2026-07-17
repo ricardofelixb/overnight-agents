@@ -6,3 +6,8 @@ logs/
 sheet-analyzer/
 tailscale-serve.json
 .claude/
+__pycache__/
+*.py[cod]
+pr-reviewer/config.json
+pr-reviewer/logs/
+pr-reviewer/state/

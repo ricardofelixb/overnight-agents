@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "domains": {
+    "convex": {
+      "allowed_hosts": ["docs.convex.dev"],
+      "urls": [
+        "https://docs.convex.dev/llms.txt",
+        "https://docs.convex.dev/understanding/best-practices/"
+      ]
+    },
+    "react": {
+      "allowed_hosts": ["react.dev", "nextjs.org", "vercel.com"],
+      "urls": [
+        "https://react.dev/reference/react",
+        "https://nextjs.org/docs",
+        "https://vercel.com/llms.txt"
+      ]
+    },
+    "workos": {
+      "allowed_hosts": ["workos.com"],
+      "urls": ["https://workos.com/docs/llms.txt"]
+    }
+  }
+}

@@ -20,13 +20,17 @@ Aggregates findings, fixes the code, verifies with linter/build, and opens a PR.
 
 ### pr-reviewer
 
-Reviews an exact pull-request base/head pair after the simplifier publishes it. Three independent Codex passes inspect behavior, system/provider boundaries, and adversarial security; consult allowlisted current provider documentation and globally promoted official skills; and return schema-validated verdicts. Safe P2/P3 findings may be repaired; every repair is fully validated and independently re-reviewed on the new SHA.
+Reviews an exact pull-request base/head pair after the simplifier publishes it. One Codex orchestrator spawns three specialist sub-agents for behavior/contracts, security/provider boundaries, and hygiene/tests. It reconciles their evidence, reads SHA-bound PR comments and reviews as untrusted leads, consults allowlisted current provider documentation and promoted official skills, and directly repairs every proven bounded issue in the touched behavioral slice. Repairs may address introduced defects, pre-existing defects, valid PR follow-ups, security hardening, performance, or worthwhile code hygiene.
 
-The model cannot push, approve, merge, or delete branches. A deterministic controller performs those actions only after eligibility, current documentation, skill hashes, clean independent consensus, full local validation, required GitHub checks, resolved review threads, clean merge state, and exact base/head checks all pass. The final merge uses squash plus an expected-head guard.
+The orchestrator may edit but cannot commit, push, comment on GitHub, approve, merge, or delete branches. After edits it uses a fresh verifier sub-agent. A deterministic controller owns the exact-SHA workspace, runs full validation before and after the orchestrator, checks the reported working-tree files, commits and pushes verified repairs, and maintains one idempotent PR comment explaining either “safe to merge,” “fixed and safe to merge,” or the exact blocking decision. The user remains the final merger.
 
-The checked-in reviewer example defaults to `observe`. A configured project can use `repair` or `merge`; the local exac deployment uses `merge` for the complete autonomous workflow.
+Reviewer workspaces are disposable controller-owned clones. First-run and interrupted `--no-checkout` clones are checked out before cleanliness is evaluated; contaminated or incomplete workspaces are moved to an auditable quarantine and replaced atomically. Successful or blocked results are cached by PR head and update timestamp so the recovery schedule does not repeat unchanged reviews.
 
-After a successful merge, the reviewer sends one outbound Telegram notification with the PR, evidence summary, changed areas, manual `vercel --prod` reminder, and domain-specific authenticated sanity checks. Delivery uses no webhook or inbound listener. Failed sends remain in a durable outbox and are retried by the recovery schedule; notification failure never changes the merge result.
+Projects may define non-secret validation resource settings such as `NODE_OPTIONS` in `validation_environment`. Credential-like and critical shell variables are rejected, and repository commands never inherit arbitrary automation secrets.
+
+The reviewer defaults to `repair`. `observe` remains available for a read-only dry run, while the local exac deployment uses `repair`: verified changes are pushed to the PR branch and manual merge remains in GitHub.
+
+A semantic blocker sends one deduplicated outbound Telegram notification with the decision needed. Delivery uses no webhook or inbound listener. Failed sends remain in a durable outbox and are retried by the recovery schedule; notification failure never changes the PR review result.
 
 #### How the checklist works
 
@@ -107,8 +111,8 @@ Projects rotate round-robin. Disabled projects are skipped.
 - Keeps the last 30 log files, prunes older ones
 - Refuses reviewer-policy, workflow, dependency-manifest, and provider-guidance changes
 - Uses a dedicated clone and refuses dirty or overlapping review workspaces
-- Never auto-repairs P0/P1 findings
-- Fails closed on stale docs/skills, missing checks, unresolved threads, stale SHAs, or validation mutation
+- Repairs only proven, bounded changes with unambiguous intended behavior, regardless of whether the defect is introduced or pre-existing
+- Fails closed on stale docs/skills, unsafe scope, stale SHAs, schema mismatch, or validation mutation
 
 ## Manual run
 

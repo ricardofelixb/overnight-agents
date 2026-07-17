@@ -10,6 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from review import review_is_current
 from telegram_notify import NotificationFailure, flush_pending
 
 
@@ -25,11 +26,11 @@ def main() -> int:
     config = json.loads(args.config.read_text())
     config_dir = args.config.resolve().parent
     defaults = config.get("defaults", {})
+    state_root = Path(config["state_root"]).expanduser()
+    if not state_root.is_absolute():
+        state_root = (config_dir / state_root).resolve()
     if defaults.get("telegram_notifications_enabled", False):
-        state_root = Path(config["state_root"]).expanduser()
         env_path = Path(config["telegram_env"]).expanduser()
-        if not state_root.is_absolute():
-            state_root = (config_dir / state_root).resolve()
         if not env_path.is_absolute():
             env_path = (config_dir / env_path).resolve()
         try:
@@ -55,7 +56,7 @@ def main() -> int:
                 "--base",
                 project["base_branch"],
                 "--json",
-                "number,headRefName,author,isDraft",
+                "number,headRefName,headRefOid,updatedAt,author,isDraft",
             ]
         )
         if listed.returncode != 0:
@@ -72,6 +73,8 @@ def main() -> int:
                 fnmatch.fnmatchcase(pull_request.get("headRefName", ""), pattern)
                 for pattern in project.get("allowed_head_patterns", [])
             ):
+                continue
+            if review_is_current(state_root, project["name"], pull_request):
                 continue
             command = [
                 sys.executable,

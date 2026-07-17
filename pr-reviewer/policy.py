@@ -53,6 +53,20 @@ def validate_config(config: dict[str, Any], config_path: Path) -> list[str]:
             for command in value
         )
 
+    def valid_validation_environment(value: Any) -> bool:
+        forbidden = {"HOME", "PATH", "SHELL", "USER", "LOGNAME", "TMPDIR", "CODEX_HOME"}
+        sensitive = re.compile(r"(TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH|PRIVATE|API_KEY)", re.IGNORECASE)
+        return isinstance(value, dict) and all(
+            isinstance(name, str)
+            and re.fullmatch(r"[A-Z_][A-Z0-9_]*", name)
+            and name not in forbidden
+            and not sensitive.search(name)
+            and isinstance(value, str)
+            and "\0" not in value
+            and "\n" not in value
+            for name, value in value.items()
+        )
+
     for project in projects:
         if not isinstance(project, dict):
             errors.append("project entries must be objects")
@@ -75,6 +89,8 @@ def validate_config(config: dict[str, Any], config_path: Path) -> list[str]:
             errors.append(f"{name}: validation_commands must be non-empty argv arrays")
         if not valid_commands(merged.get("setup_commands", [])):
             errors.append(f"{name}: setup_commands must be argv arrays")
+        if not valid_validation_environment(merged.get("validation_environment", {})):
+            errors.append(f"{name}: validation_environment contains an unsafe name or value")
         if not project.get("allowed_head_patterns"):
             errors.append(f"{name}: allowed_head_patterns cannot be empty")
         elif any(pattern in {"*", "**"} for pattern in project["allowed_head_patterns"]):
@@ -85,34 +101,19 @@ def validate_config(config: dict[str, Any], config_path: Path) -> list[str]:
             errors.append(f"{name}: wildcard authors are forbidden")
         if not isinstance(project.get("base_branch"), str) or not project["base_branch"]:
             errors.append(f"{name}: base_branch is required")
-        mode = merged.get("mode", "observe")
-        if mode not in {"observe", "repair", "merge"}:
-            errors.append(f"{name}: mode must be observe, repair, or merge")
-        if not isinstance(merged.get("approve_before_merge", False), bool):
-            errors.append(f"{name}: approve_before_merge must be boolean")
+        mode = merged.get("mode", "repair")
+        if mode not in {"observe", "repair"}:
+            errors.append(f"{name}: mode must be observe or repair")
         if not isinstance(merged.get("telegram_notifications_enabled", False), bool):
             errors.append(f"{name}: telegram_notifications_enabled must be boolean")
-        severities = merged.get("auto_fix_severities", ["P2", "P3"])
-        if not isinstance(severities, list) or not severities or not set(severities) <= {"P0", "P1", "P2", "P3"}:
-            errors.append(f"{name}: auto_fix_severities must contain valid severities")
-        passes = merged.get("review_passes")
-        if (
-            not isinstance(passes, list)
-            or len(passes) < 2
-            or any(not isinstance(item, dict) or not item.get("name") or not item.get("lens") for item in passes)
-            or len({item.get("name") for item in passes if isinstance(item, dict)}) != len(passes)
-        ):
-            errors.append(f"{name}: at least two uniquely named review passes are required")
         numeric_ranges = {
-            "max_repair_iterations": (0, 5),
             "command_timeout_seconds": (60, 21600),
             "max_changed_files": (1, 1000),
             "max_diff_bytes": (1000, 10_000_000),
+            "max_review_context_bytes": (10_000, 5_000_000),
             "max_document_bytes": (1000, 20_000_000),
             "docs_max_age_hours": (1, 168),
             "skill_max_age_days": (1, 31),
-            "check_timeout_seconds": (1, 7200),
-            "check_poll_seconds": (1, 300),
         }
         for field, (minimum, maximum) in numeric_ranges.items():
             value = merged.get(field)
@@ -122,7 +123,6 @@ def validate_config(config: dict[str, Any], config_path: Path) -> list[str]:
         if not isinstance(config.get(field), str) or not config[field]:
             errors.append(f"missing {field}")
     return errors
-
 
 def evaluate_pr_eligibility(pr: dict[str, Any], project: dict[str, Any]) -> list[str]:
     errors: list[str] = []
@@ -148,31 +148,4 @@ def evaluate_pr_eligibility(pr: dict[str, Any], project: dict[str, Any]) -> list
         errors.append("invalid base SHA")
     if not SHA_RE.fullmatch(pr.get("headRefOid", "")):
         errors.append("invalid head SHA")
-    return errors
-
-
-def evaluate_merge_gate(gate: dict[str, Any]) -> list[str]:
-    errors: list[str] = []
-    if gate.get("mode") != "merge":
-        errors.append("project is not in merge mode")
-    if not gate.get("eligible"):
-        errors.append("pull request eligibility failed")
-    if not gate.get("consensus_clean"):
-        errors.append("independent clean-review consensus is missing")
-    if not gate.get("documentation_current"):
-        errors.append("required documentation is missing or stale")
-    if not gate.get("validation_passed"):
-        errors.append("project validation did not pass")
-    if not gate.get("required_checks_passed"):
-        errors.append("required GitHub checks did not pass")
-    if not gate.get("mergeable"):
-        errors.append("pull request is not mergeable")
-    if not gate.get("merge_state_clean"):
-        errors.append("pull request merge state is not clean")
-    if gate.get("reviewed_head_sha") != gate.get("current_head_sha"):
-        errors.append("pull request head changed after review")
-    if gate.get("reviewed_base_sha") != gate.get("current_base_sha"):
-        errors.append("pull request base changed after review")
-    if gate.get("unresolved_blockers"):
-        errors.append("unresolved blockers remain")
     return errors

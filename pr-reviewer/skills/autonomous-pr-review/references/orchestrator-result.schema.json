@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Autonomous PR orchestrator result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "status",
+    "reviewed_base_sha",
+    "reviewed_head_sha",
+    "summary",
+    "reviewed_files",
+    "specialists",
+    "repairs",
+    "changed_files",
+    "tests_changed",
+    "verification",
+    "documentation",
+    "remaining_observations",
+    "blocking_reasons"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "status": { "type": "string", "enum": ["clean", "repaired", "blocked"] },
+    "reviewed_base_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "reviewed_head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "summary": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "reviewed_files": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "specialists": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "scope", "verdict", "summary"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": ["behavior-contracts", "security-provider", "hygiene-tests"]
+          },
+          "scope": { "type": "string", "minLength": 1, "maxLength": 1000 },
+          "verdict": { "type": "string", "enum": ["clean", "findings", "blocked"] },
+          "summary": { "type": "string", "minLength": 1, "maxLength": 1500 }
+        }
+      }
+    },
+    "repairs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "provenance",
+          "category",
+          "title",
+          "evidence",
+          "why_safe",
+          "files",
+          "tests"
+        ],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,80}$" },
+          "provenance": { "type": "string", "enum": ["introduced", "pre_existing", "pr_follow_up"] },
+          "category": {
+            "type": "string",
+            "enum": ["correctness", "security", "reliability", "performance", "hygiene"]
+          },
+          "title": { "type": "string", "minLength": 1, "maxLength": 180 },
+          "evidence": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "why_safe": { "type": "string", "minLength": 1, "maxLength": 1500 },
+          "files": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+          "tests": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+        }
+      }
+    },
+    "changed_files": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "tests_changed": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["performed", "verdict", "summary"],
+      "properties": {
+        "performed": { "type": "boolean" },
+        "verdict": { "type": "string", "enum": ["not_needed", "passed", "blocked"] },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 1500 }
+      }
+    },
+    "documentation": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "provider",
+          "installed_version",
+          "skill",
+          "skill_revision",
+          "url",
+          "retrieved_at",
+          "compatibility"
+        ],
+        "properties": {
+          "provider": { "type": "string", "enum": ["convex", "react", "workos"] },
+          "installed_version": { "type": ["string", "null"] },
+          "skill": { "type": ["string", "null"] },
+          "skill_revision": { "type": ["string", "null"] },
+          "url": { "type": "string", "pattern": "^https://" },
+          "retrieved_at": { "type": "string", "format": "date-time" },
+          "compatibility": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "remaining_observations": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 1000 }
+    },
+    "blocking_reasons": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 1000 }
+    }
+  }
+}

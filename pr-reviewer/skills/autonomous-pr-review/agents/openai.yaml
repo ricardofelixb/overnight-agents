@@ -1,4 +1,4 @@
 interface:
   display_name: "Autonomous PR Review"
-  short_description: "Deeply review, repair, and gate pull requests"
-  default_prompt: "Use $autonomous-pr-review to inspect this pull request, repair proven regressions, and return a merge-gate verdict."
+  short_description: "Orchestrate PR review, repair, and verification"
+  default_prompt: "Use $autonomous-pr-review to orchestrate specialist reviews, repair proven issues, verify the result, and prepare a manual-merge summary."

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -12,10 +13,241 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from review import ReviewFailure, tree_hash, validate_docs_manifest, validate_skill_lock
+from review import (
+    ReviewFailure,
+    Runner,
+    capture_review_context,
+    format_review_comment,
+    legacy_head_was_reviewed,
+    orchestrator_prompt,
+    prepare_workspace,
+    record_review_state,
+    review_is_current,
+    tree_hash,
+    upsert_review_comment,
+    validate_docs_manifest,
+    validate_skill_lock,
+    write_validation_evidence,
+)
 
 
 class ReviewSafetyTests(unittest.TestCase):
+    def git(self, *arguments: str, cwd: Path | None = None) -> str:
+        return subprocess.run(
+            ["git", *arguments],
+            cwd=cwd,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=True,
+        ).stdout.strip()
+
+    def repository_fixture(self, root: Path) -> tuple[Path, Path, str]:
+        origin = root / "origin.git"
+        seed = root / "seed"
+        source = root / "source"
+        self.git("init", "--bare", str(origin))
+        self.git("init", "-b", "main", str(seed))
+        self.git("config", "user.email", "reviewer@example.test", cwd=seed)
+        self.git("config", "user.name", "Reviewer Test", cwd=seed)
+        (seed / "example.txt").write_text("safe\n")
+        self.git("add", "example.txt", cwd=seed)
+        self.git("commit", "-m", "initial", cwd=seed)
+        self.git("remote", "add", "origin", str(origin), cwd=seed)
+        self.git("push", "-u", "origin", "main", cwd=seed)
+        head = self.git("rev-parse", "HEAD", cwd=seed)
+        self.git("symbolic-ref", "HEAD", "refs/heads/main", cwd=origin)
+        self.git("update-ref", "refs/pull/1/head", head, cwd=origin)
+        self.git("clone", str(origin), str(source))
+        return origin, source, head
+
+    def test_first_workspace_provision_checks_out_before_cleanliness_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _, source, head = self.repository_fixture(root)
+            workspace = root / "workspaces" / "example"
+            runner = Runner(root / "review.log")
+            prepare_workspace(runner, workspace, source, "trusted/example", 1, "main", head, head)
+            self.assertEqual(self.git("rev-parse", "HEAD", cwd=workspace), head)
+            self.assertEqual(self.git("status", "--porcelain", cwd=workspace), "")
+
+    def test_incomplete_no_checkout_workspace_is_quarantined_and_reprovisioned(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            origin, source, head = self.repository_fixture(root)
+            workspace = root / "workspaces" / "example"
+            workspace.parent.mkdir(parents=True)
+            self.git("clone", "--no-checkout", str(origin), str(workspace))
+            self.assertTrue(self.git("status", "--porcelain", cwd=workspace))
+            runner = Runner(root / "review.log")
+            prepare_workspace(runner, workspace, source, "trusted/example", 1, "main", head, head)
+            quarantined = list((workspace.parent / ".quarantine").iterdir())
+            self.assertEqual(len(quarantined), 1)
+            self.assertEqual(self.git("status", "--porcelain", cwd=workspace), "")
+            self.assertEqual(self.git("rev-parse", "HEAD", cwd=workspace), head)
+
+    def test_orchestrator_prompt_requires_subagents_and_allows_proven_repairs(self) -> None:
+        root = Path("/tmp/reviewer-test")
+        prompt = orchestrator_prompt(**{
+            "skill_path": root / "skill",
+            "pr": {"url": "https://example.test/pr/1", "number": 1, "baseRefOid": "a" * 40, "headRefOid": "b" * 40},
+            "changed_files_path": root / "changed.txt",
+            "docs_manifest": root / "docs.json",
+            "skills_manifest": root / "skills.json",
+            "review_context": root / "context.json",
+            "validation_evidence": root / "validation.json",
+            "repairs_allowed": True,
+        })
+        self.assertIn("Spawn the three named specialist sub-agents concurrently", prompt)
+        self.assertIn("pre-existed at the base", prompt)
+        self.assertIn(str(root / "context.json"), prompt)
+        self.assertIn("repairs allowed: true", prompt)
+
+    def test_comment_reports_clean_and_repaired_outcomes(self) -> None:
+        clean = {
+            "status": "clean",
+            "repairs": [],
+            "verification": {"performed": False},
+            "remaining_observations": [],
+            "blocking_reasons": [],
+        }
+        clean_comment = format_review_comment(
+            clean,
+            original_head="a" * 40,
+            final_head="a" * 40,
+            validation_commands=[["pnpm", "run", "validate"]],
+        )
+        self.assertIn("safe to merge", clean_comment)
+        self.assertIn("pnpm run validate", clean_comment)
+        repaired = clean | {
+            "status": "repaired",
+            "repairs": [{
+                "title": "Fix access check",
+                "provenance": "pre_existing",
+                "evidence": "A cross-tenant read was possible",
+            }],
+            "verification": {"performed": True, "summary": "verified"},
+        }
+        repaired_comment = format_review_comment(
+            repaired,
+            original_head="a" * 40,
+            final_head="b" * 40,
+            validation_commands=[["pnpm", "run", "validate"]],
+        )
+        self.assertIn("fixed and safe to merge", repaired_comment)
+        self.assertIn("pre-existing", repaired_comment)
+        self.assertIn("Repair commit", repaired_comment)
+
+    def test_review_state_skips_only_identical_head_and_pr_context(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            pr = {"number": 7, "headRefOid": "a" * 40, "updatedAt": "2026-07-16T12:00:00Z"}
+            record_review_state(root, "example", pr, "clean")
+            self.assertTrue(review_is_current(root, "example", pr))
+            self.assertFalse(review_is_current(root, "example", pr | {"updatedAt": "2026-07-16T12:01:00Z"}))
+            self.assertFalse(review_is_current(root, "example", pr | {"headRefOid": "b" * 40}))
+
+    def test_legacy_review_state_migrates_only_the_same_head(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            summary = root / "runs" / "example" / "7" / "old" / "summary.json"
+            summary.parent.mkdir(parents=True)
+            summary.write_text(json.dumps({"status": "blocked", "head_sha": "a" * 40}))
+            self.assertTrue(legacy_head_was_reviewed(root, "example", {"number": 7, "headRefOid": "a" * 40}))
+            self.assertFalse(legacy_head_was_reviewed(root, "example", {"number": 7, "headRefOid": "b" * 40}))
+
+    def test_review_comment_updates_only_the_controller_marker(self) -> None:
+        class CommentRunner:
+            def __init__(self, existing_body: str | None) -> None:
+                self.existing_body = existing_body
+                self.commands: list[list[str]] = []
+
+            def run(self, command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                self.commands.append(command)
+                joined = " ".join(command)
+                if "viewer{login}" in joined:
+                    nodes = [] if self.existing_body is None else [{
+                        "id": "COMMENT_ID",
+                        "body": self.existing_body,
+                        "author": {"login": "controller"},
+                    }]
+                    payload = {"data": {
+                        "viewer": {"login": "controller"},
+                        "repository": {"pullRequest": {"comments": {"nodes": nodes}}},
+                    }}
+                    return subprocess.CompletedProcess(command, 0, json.dumps(payload), "")
+                return subprocess.CompletedProcess(command, 0, json.dumps({"data": {}}), "")
+
+        pr = {"number": 7, "id": "PR_ID"}
+        created = CommentRunner(None)
+        upsert_review_comment(created, "trusted/example", pr, "<!-- overnight-agents:pr-reviewer -->\nclean")
+        self.assertTrue(any("addComment" in " ".join(command) for command in created.commands))
+        updated = CommentRunner("<!-- overnight-agents:pr-reviewer -->\nold")
+        upsert_review_comment(updated, "trusted/example", pr, "<!-- overnight-agents:pr-reviewer -->\nnew")
+        self.assertTrue(any("updateIssueComment" in " ".join(command) for command in updated.commands))
+
+    def test_validation_evidence_is_sha_bound_and_hashes_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = write_validation_evidence(
+                root,
+                0,
+                {"baseRefOid": "a" * 40, "headRefOid": "b" * 40},
+                [["pnpm", "install"]],
+                [["pnpm", "run", "validate"]],
+                ["complete"],
+                {"NODE_OPTIONS": "--max-old-space-size=8192"},
+                "installed\n",
+                "complete\n",
+            )
+            evidence = json.loads(path.read_text())
+            self.assertEqual(evidence["head_sha"], "b" * 40)
+            self.assertEqual(evidence["status"], "passed")
+            self.assertEqual(evidence["validation_environment"]["NODE_OPTIONS"], "--max-old-space-size=8192")
+            output = Path(evidence["validation_output_path"])
+            self.assertEqual(
+                evidence["validation_output_sha256"],
+                hashlib.sha256(output.read_bytes()).hexdigest(),
+            )
+
+    def test_review_context_is_sha_bound_and_size_limited(self) -> None:
+        class GraphqlRunner:
+            def run(self, command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                payload = {
+                    "data": {"repository": {"pullRequest": {"reviewThreads": {
+                        "nodes": [], "pageInfo": {"hasNextPage": False, "endCursor": None}
+                    }}}}
+                }
+                return subprocess.CompletedProcess(command, 0, json.dumps(payload), "")
+
+        pr = {
+            "number": 1,
+            "url": "https://example.test/pr/1",
+            "baseRefOid": "a" * 40,
+            "headRefOid": "b" * 40,
+            "title": "Example",
+            "body": "A correctness claim",
+            "commits": [],
+            "comments": [
+                {"author": {"login": "controller"}, "body": "<!-- overnight-agents:pr-reviewer -->\nold"},
+                {"author": {"login": "trusted"}, "body": "Please verify the empty state"},
+            ],
+            "reviews": [],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = capture_review_context(
+                GraphqlRunner(), {"max_review_context_bytes": 10000}, "trusted/example", pr, root, 0, "controller"
+            )
+            context = json.loads(path.read_text())
+            self.assertEqual(context["base_sha"], "a" * 40)
+            self.assertEqual(context["head_sha"], "b" * 40)
+            self.assertEqual([item["body"] for item in context["comments"]], ["Please verify the empty state"])
+            with self.assertRaisesRegex(ReviewFailure, "evidence limit"):
+                capture_review_context(
+                    GraphqlRunner(), {"max_review_context_bytes": 10}, "trusted/example", pr, root, 1, "controller"
+                )
+
     def test_stale_skill_lock_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             state = Path(temporary)

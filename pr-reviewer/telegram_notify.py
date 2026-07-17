@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import stat
@@ -87,7 +88,6 @@ def format_merge_message(event: dict[str, Any]) -> str:
     domains = sorted({_single_line(item, 40) for item in event.get("domains", []) if item})
     changed_files = [_single_line(item, 180) for item in event.get("changed_files", []) if item]
     repair_count = int(event.get("repair_count", 0))
-    review_passes = int(event.get("review_passes", 0))
 
     lines = [
         f"✅ {project}: PR #{number} squash-merged into {base_branch}",
@@ -95,7 +95,7 @@ def format_merge_message(event: dict[str, Any]) -> str:
         url,
         "",
         f"Reviewed head: {head_sha[:12]}",
-        f"Evidence: {review_passes} independent review passes, local validation, and required GitHub CI passed.",
+        "Evidence: orchestrated specialist review, fresh repair verification when needed, local validation, and required GitHub CI passed.",
         f"Controller repairs: {repair_count}",
         f"Provider review: {', '.join(domains) if domains else 'No configured provider domain detected'}",
     ]
@@ -127,13 +127,71 @@ def format_merge_message(event: dict[str, Any]) -> str:
     return message
 
 
-def enqueue_notification(state_root: Path, event: dict[str, Any]) -> Path:
-    if event.get("type") != "pr_merged":
+def format_blocked_message(event: dict[str, Any]) -> str:
+    number = event.get("pr_number")
+    project = _single_line(event.get("project"), 80)
+    title = _single_line(event.get("title"), 180)
+    url = _single_line(event.get("url"), 500)
+    head_sha = _single_line(event.get("head_sha"), 40)
+    blockers = [_single_line(item, 500) for item in event.get("blockers", []) if item]
+    findings = [item for item in event.get("findings", []) if isinstance(item, dict)]
+
+    lines = [
+        f"🚫 {project}: PR #{number} requires a decision",
+        title,
+        url,
+        "",
+        f"Reviewed head: {head_sha[:12]}",
+        "Autonomous merge stopped before any repair or merge because the evidence is not safe to resolve automatically.",
+    ]
+    if findings:
+        lines.extend(["", "Confirmed findings:"])
+        for finding in findings[:5]:
+            severity = _single_line(finding.get("severity"), 10)
+            finding_title = _single_line(finding.get("title"), 240)
+            lines.append(f"• {severity}: {finding_title}")
+    if blockers:
+        lines.extend(["", "Why it stopped:"])
+        lines.extend(f"• {blocker}" for blocker in blockers[:5])
+    lines.extend(
+        [
+            "",
+            "Next step: define the intended product/security behavior or update the PR with evidence that resolves the ambiguity. The recovery reviewer will retry when the PR changes.",
+            "No merge or production deployment occurred.",
+        ]
+    )
+    message = "\n".join(lines)
+    if len(message) > MAX_MESSAGE_CHARS:
+        message = message[: MAX_MESSAGE_CHARS - 20].rstrip() + "\n…message truncated"
+    return message
+
+
+def format_notification(event: dict[str, Any]) -> str:
+    if event.get("type") == "pr_merged":
+        return format_merge_message(event)
+    if event.get("type") == "pr_blocked":
+        return format_blocked_message(event)
+    raise NotificationFailure("unsupported notification event")
+
+
+def enqueue_notification(state_root: Path, event: dict[str, Any]) -> Path | None:
+    event_type = event.get("type")
+    if event_type not in {"pr_merged", "pr_blocked"}:
         raise NotificationFailure("unsupported notification event")
     pending = state_root / "notification-outbox" / "pending"
-    created = str(event.get("created_at") or now_iso()).replace(":", "").replace("+", "_")
     head = _single_line(event.get("head_sha"), 40)[:12] or "unknown"
-    filename = f"{created}-pr-{int(event['pr_number'])}-{head}.json"
+    if event_type == "pr_blocked":
+        identity = json.dumps(
+            {"head_sha": event.get("head_sha"), "blockers": event.get("blockers", []), "findings": event.get("findings", [])},
+            sort_keys=True,
+        ).encode()
+        digest = hashlib.sha256(identity).hexdigest()[:12]
+        filename = f"pr-{int(event['pr_number'])}-{head}-blocked-{digest}.json"
+        if (state_root / "notification-outbox" / "sent" / filename).exists():
+            return None
+    else:
+        created = str(event.get("created_at") or now_iso()).replace(":", "").replace("+", "_")
+        filename = f"{created}-pr-{int(event['pr_number'])}-{head}.json"
     path = pending / filename
     atomic_json(path, event)
     return path
@@ -173,7 +231,7 @@ def deliver_notification(event_path: Path, env_path: Path, state_root: Path) -> 
         event = json.loads(event_path.read_text())
     except (OSError, json.JSONDecodeError) as error:
         raise NotificationFailure("queued Telegram event is invalid") from error
-    send_message(env_path, format_merge_message(event))
+    send_message(env_path, format_notification(event))
     sent = state_root / "notification-outbox" / "sent" / event_path.name
     sent.parent.mkdir(parents=True, exist_ok=True)
     os.replace(event_path, sent)

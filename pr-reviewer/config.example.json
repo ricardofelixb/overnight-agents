@@ -7,23 +7,18 @@
   "skills_lock": "./state/skills.lock.json",
   "telegram_env": "./.env",
   "defaults": {
-    "mode": "observe",
+    "mode": "repair",
     "model": "gpt-5.6-sol",
     "reasoning_effort": "high",
-    "max_repair_iterations": 2,
     "command_timeout_seconds": 7200,
     "max_changed_files": 200,
     "max_diff_bytes": 1500000,
+    "max_review_context_bytes": 1000000,
     "max_document_bytes": 5000000,
-    "auto_fix_severities": ["P2", "P3"],
     "docs_max_age_hours": 24,
     "skill_max_age_days": 8,
-    "check_timeout_seconds": 1800,
-    "check_poll_seconds": 20,
-    "require_required_checks": true,
-    "approve_before_merge": false,
-    "delete_branch": true,
     "telegram_notifications_enabled": true,
+    "validation_environment": {},
     "protected_policy_patterns": [
       "AGENTS.md",
       "**/AGENTS.md",
@@ -40,20 +35,6 @@
       "bun.lock",
       "bun.lockb",
       "convex/_generated/ai/guidelines.md"
-    ],
-    "review_passes": [
-      {
-        "name": "behavior-contracts",
-        "lens": "Behavioral equivalence, callers, contracts, deletions, error paths, and regression-sensitive tests"
-      },
-      {
-        "name": "systems-boundaries",
-        "lens": "Data integrity, concurrency, authentication, authorization, provider rules, security, performance, and operational safety"
-      },
-      {
-        "name": "adversarial-security",
-        "lens": "Threat-model the changed attack surface, tenant isolation, privilege boundaries, injection paths, secret exposure, unsafe deserialization, supply-chain behavior, and abuse cases"
-      }
     ]
   },
   "projects": [
@@ -69,7 +50,7 @@
       "setup_commands": [["pnpm", "install", "--frozen-lockfile"]],
       "validation_commands": [["pnpm", "run", "validate"]],
       "validation_success_markers": [],
-      "mode": "observe"
+      "mode": "repair"
     }
   ]
 }

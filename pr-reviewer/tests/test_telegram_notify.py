@@ -17,6 +17,7 @@ from telegram_notify import (
     deliver_notification,
     enqueue_notification,
     flush_pending,
+    format_blocked_message,
     format_merge_message,
     load_credentials,
 )
@@ -36,7 +37,21 @@ def event() -> dict:
         "changed_files": ["src/components/Dashboard.tsx", "convex/users.ts"],
         "domains": ["react", "workos", "convex"],
         "repair_count": 1,
-        "review_passes": 3,
+    }
+
+
+def blocked_event() -> dict:
+    return {
+        "version": 1,
+        "type": "pr_blocked",
+        "created_at": "2026-07-16T12:00:00+00:00",
+        "project": "exac",
+        "pr_number": 108,
+        "title": "Simplify caja",
+        "url": "https://github.com/example/exac/pull/108",
+        "head_sha": "b" * 40,
+        "blockers": ["receipt-history scope requires a product decision"],
+        "findings": [{"id": "scope", "severity": "P1", "title": "Receipt scope is ignored"}],
     }
 
 
@@ -82,6 +97,21 @@ class TelegramNotificationTests(unittest.TestCase):
                 deliver_notification(queued, env_path, root)
             self.assertFalse(queued.exists())
             self.assertTrue((root / "notification-outbox" / "sent" / queued.name).is_file())
+
+    def test_blocker_message_is_actionable_and_deduplicated_after_delivery(self) -> None:
+        message = format_blocked_message(blocked_event())
+        self.assertIn("requires a decision", message)
+        self.assertIn("P1: Receipt scope is ignored", message)
+        self.assertIn("No merge", message)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            env_path = self.credentials(root)
+            queued = enqueue_notification(root, blocked_event())
+            self.assertIsNotNone(queued)
+            assert queued is not None
+            with mock.patch("telegram_notify.urllib.request.urlopen", return_value=SuccessfulResponse()):
+                deliver_notification(queued, env_path, root)
+            self.assertIsNone(enqueue_notification(root, blocked_event()))
 
     def test_failed_delivery_remains_pending_for_retry(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

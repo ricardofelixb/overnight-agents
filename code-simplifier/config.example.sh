@@ -23,6 +23,12 @@ STATE_FILE="$(dirname "${BASH_SOURCE[0]}")/.rotation_index"
 # Log directory
 LOG_DIR="$(dirname "${BASH_SOURCE[0]}")/logs"
 
+# Controller-owned clones and persistent ignored project state.
+SIMPLIFIER_STATE_ROOT="$(dirname "${BASH_SOURCE[0]}")/state"
+WORKSPACE_ROOT="$SIMPLIFIER_STATE_ROOT/workspaces"
+PROJECT_ENV_ROOT="$SIMPLIFIER_STATE_ROOT/env"
+CHECKLIST_ROOT="$SIMPLIFIER_STATE_ROOT/checklists"
+
 # Branch prefix for simplification PRs
 BRANCH_PREFIX="code-simplify"
 
@@ -30,6 +36,7 @@ BRANCH_PREFIX="code-simplify"
 AUTO_REVIEW_PR="false"
 PR_REVIEWER_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/pr-reviewer/review.py"
 PR_REVIEWER_CONFIG="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/pr-reviewer/config.json"
+# Set PR_REVIEWER_PROJECT when the reviewer project name differs from the source directory basename.
 
 # The prompt Claude receives — edit freely
 CLAUDE_PROMPT='You are running as an automated code simplification job. Your mission:

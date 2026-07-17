@@ -18,6 +18,15 @@ Works through your codebase folder-by-folder using a checklist (`simplification.
 
 Aggregates findings, fixes the code, verifies with linter/build, and opens a PR.
 
+Simplifier runs use controller-owned clones under `code-simplifier/state/workspaces/`. The configured source checkout is used only to discover the trusted origin URL, so local branches, staged files, and unfinished work are never switched, copied, or included in a simplification PR. A dirty interrupted `code-simplify/*` branch is resumed only inside the automation clone; unexpected workspace contamination is quarantined and replaced.
+
+Ignored automation state is stored outside the clone and symlinked into it. Each enabled project uses:
+
+- `code-simplifier/state/env/<project>.env.local` for private runtime configuration (mode `0600`)
+- `code-simplifier/state/checklists/<project>.md` when `simplification.md` is ignored rather than tracked
+
+The same private environment file can be configured for the PR reviewer through its per-project `environment_file`. Both controllers require `.env.local` to be ignored and refuse unmanaged or broadly readable environment files.
+
 ### pr-reviewer
 
 Reviews an exact pull-request base/head pair after the simplifier publishes it. One Codex orchestrator spawns three specialist sub-agents for behavior/contracts, security/provider boundaries, and hygiene/tests. It reconciles their evidence, reads SHA-bound PR comments and reviews as untrusted leads, consults allowlisted current provider documentation and promoted official skills, and directly repairs every proven bounded issue in the touched behavioral slice. Repairs may address introduced defects, pre-existing defects, valid PR follow-ups, security hardening, performance, or worthwhile code hygiene.
@@ -63,7 +72,11 @@ Add `simplification.md` to `.gitignore`. Each run picks the next unchecked folde
    ```
 3. Fill in your tokens in `.env`
 4. Edit each `config.sh` — set your project paths, branches, and schedule
-5. For code-simplifier: create `simplification.md` in each target repo and add it to `.gitignore`
+5. For code-simplifier:
+   - Put the project environment at `code-simplifier/state/env/<project>.env.local` and run `chmod 600` on it.
+   - If `simplification.md` is ignored, store its canonical copy at `code-simplifier/state/checklists/<project>.md` and symlink the project checkout's `simplification.md` to it.
+   - If `simplification.md` is tracked, keep using the tracked repository file.
+   - Configure the reviewer project's `environment_file` to point at the same private environment file.
 6. Install the cron jobs:
    ```
    ./dead-code-sweeper/install-cron.sh
@@ -105,8 +118,10 @@ Projects rotate round-robin. Disabled projects are skipped.
 
 ## Safety
 
-- Skips repos with dirty working trees
-- Returns to the default branch after each run
+- Never switches or modifies the configured source checkout, even when it is dirty
+- Uses a dedicated simplifier clone and returns that clone to the default branch after clean runs
+- Persists ignored checklists outside disposable automation clones
+- Requires private project environment files and ignored workspace symlinks
 - Verifies changes with linter/build before committing
 - Keeps the last 30 log files, prunes older ones
 - Refuses reviewer-policy, workflow, dependency-manifest, and provider-guidance changes

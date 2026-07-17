@@ -49,50 +49,59 @@ if [[ "$FOUND" != "true" ]]; then
   exit 0
 fi
 
-PROJECT_NAME=$(basename "$PROJECT_PATH")
+SOURCE_PROJECT_PATH="$PROJECT_PATH"
+PROJECT_NAME=$(basename "$SOURCE_PROJECT_PATH")
 BRANCH_NAME="${BRANCH_PREFIX}/$(date +%Y-%m-%d)"
 RESUMING_EXISTING_BRANCH=false
+PROJECT_ENV_FILE="$PROJECT_ENV_ROOT/$PROJECT_NAME.env.local"
+PROJECT_CHECKLIST_FILE="$CHECKLIST_ROOT/$PROJECT_NAME.md"
 
 log "=== Code Simplifier ==="
-log "Project: $PROJECT_NAME ($PROJECT_PATH)"
+log "Project: $PROJECT_NAME ($SOURCE_PROJECT_PATH)"
 log "Default branch: $DEFAULT_BRANCH"
 log "Branch: $BRANCH_NAME"
 
-# --- Check simplification.md exists ---
-if [[ ! -f "$PROJECT_PATH/simplification.md" ]]; then
+# --- Prepare the controller-owned clone ---
+mkdir -p "$WORKSPACE_ROOT" "$PROJECT_ENV_ROOT" "$CHECKLIST_ROOT"
+set +e
+WORKSPACE_RESULT=$(
+  "$SCRIPT_DIR/workspace.py" \
+    --source "$SOURCE_PROJECT_PATH" \
+    --workspace-root "$WORKSPACE_ROOT" \
+    --project "$PROJECT_NAME" \
+    --base-branch "$DEFAULT_BRANCH" \
+    --branch-prefix "$BRANCH_PREFIX" \
+    --environment-file "$PROJECT_ENV_FILE" \
+    --checklist-file "$PROJECT_CHECKLIST_FILE" \
+    2>> "$LOG_FILE"
+)
+WORKSPACE_EXIT_CODE=$?
+set -e
+if [[ "$WORKSPACE_EXIT_CODE" -ne 0 ]]; then
+  log "BLOCKED: could not prepare the isolated simplifier workspace"
+  exit "$WORKSPACE_EXIT_CODE"
+fi
+PROJECT_PATH=$(python3 -c 'import json, sys; print(json.loads(sys.argv[1])["workspace"])' "$WORKSPACE_RESULT")
+RESUMING_EXISTING_BRANCH=$(python3 -c 'import json, sys; print("true" if json.loads(sys.argv[1])["resuming"] else "false")' "$WORKSPACE_RESULT")
+if [[ "$RESUMING_EXISTING_BRANCH" == "true" ]]; then
+  BRANCH_NAME=$(python3 -c 'import json, sys; print(json.loads(sys.argv[1])["branch"])' "$WORKSPACE_RESULT")
+  log "RESUMING: dirty simplifier branch $BRANCH_NAME"
+fi
+log "Workspace: $PROJECT_PATH"
+cd "$PROJECT_PATH"
+
+# --- Check simplification.md in the isolated workspace ---
+if [[ ! -f "simplification.md" ]]; then
   log "SKIPPED: no simplification.md in $PROJECT_NAME"
   exit 0
 fi
-
-# --- Check if all folders are already done ---
-if ! grep -q '\[ \]' "$PROJECT_PATH/simplification.md"; then
+if ! grep -q '\[ \]' "simplification.md"; then
   log "SKIPPED: all folders already checked in $PROJECT_NAME"
   exit 0
 fi
 
-# --- Prepare the repo ---
-cd "$PROJECT_PATH"
-
-CURRENT_BRANCH="$(git branch --show-current 2>/dev/null || true)"
-
-# Abort dirty user/default branches, but resume dirty simplifier branches.
-if [[ -n $(git status --porcelain 2>/dev/null) ]]; then
-  if [[ "$CURRENT_BRANCH" == "$BRANCH_PREFIX/"* ]]; then
-    RESUMING_EXISTING_BRANCH=true
-    BRANCH_NAME="$CURRENT_BRANCH"
-    log "RESUMING: dirty simplifier branch $BRANCH_NAME"
-  else
-    log "SKIPPED: working tree is dirty on ${CURRENT_BRANCH:-unknown branch} in $PROJECT_NAME — not touching it"
-    exit 0
-  fi
-fi
-
 if [[ "$RESUMING_EXISTING_BRANCH" != "true" ]]; then
-  # Fetch, checkout default branch, pull latest
-  git fetch origin >> "$LOG_FILE" 2>&1
-  git checkout "$DEFAULT_BRANCH" >> "$LOG_FILE" 2>&1
-  git pull origin "$DEFAULT_BRANCH" >> "$LOG_FILE" 2>&1
-  log "Fetched and pulled latest $DEFAULT_BRANCH"
+  log "Prepared latest origin/$DEFAULT_BRANCH in the isolated workspace"
 
   # Install dependencies (so linters/builds reflect current state)
   if [[ -f "pnpm-lock.yaml" ]]; then
@@ -144,7 +153,7 @@ else
 fi
 set -e
 
-log "Claude exited with code $EXIT_CODE"
+log "Agent exited with code $EXIT_CODE"
 
 # --- Cleanup: return to default branch ---
 cd "$PROJECT_PATH"
@@ -158,7 +167,7 @@ fi
 # --- Direct handoff to autonomous PR reviewer ---
 if [[ "$EXIT_CODE" -eq 0 && "${AUTO_REVIEW_PR:-false}" == "true" ]]; then
   if [[ -n $(git status --porcelain 2>/dev/null) ]]; then
-    log "REVIEW BLOCKED: source checkout is not clean"
+    log "REVIEW BLOCKED: simplifier workspace is not clean"
     EXIT_CODE=1
   elif [[ ! -x "${PR_REVIEWER_SCRIPT:-}" || ! -f "${PR_REVIEWER_CONFIG:-}" ]]; then
     log "REVIEW BLOCKED: reviewer script/config is unavailable"

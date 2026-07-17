@@ -91,6 +91,9 @@ def validate_config(config: dict[str, Any], config_path: Path) -> list[str]:
             errors.append(f"{name}: setup_commands must be argv arrays")
         if not valid_validation_environment(merged.get("validation_environment", {})):
             errors.append(f"{name}: validation_environment contains an unsafe name or value")
+        environment_file = merged.get("environment_file")
+        if environment_file is not None and (not isinstance(environment_file, str) or not environment_file):
+            errors.append(f"{name}: environment_file must be a non-empty path")
         if not project.get("allowed_head_patterns"):
             errors.append(f"{name}: allowed_head_patterns cannot be empty")
         elif any(pattern in {"*", "**"} for pattern in project["allowed_head_patterns"]):

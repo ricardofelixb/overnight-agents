@@ -11,6 +11,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -175,6 +176,12 @@ def load_configuration(path: Path) -> tuple[dict[str, Any], Path]:
     config_dir = path.resolve().parent
     for field in ("skill_path", "workspace_root", "state_root", "docs_catalog", "skills_lock", "telegram_env"):
         config[field] = str(resolve_path(config_dir, config[field]))
+    defaults = config.get("defaults", {})
+    if "environment_file" in defaults:
+        defaults["environment_file"] = str(resolve_path(config_dir, defaults["environment_file"]))
+    for project in config["projects"]:
+        if "environment_file" in project:
+            project["environment_file"] = str(resolve_path(config_dir, project["environment_file"]))
     return config, config_dir
 
 
@@ -317,6 +324,35 @@ def safe_workspace(root: Path, project_name: str, source_path: Path) -> Path:
     return workspace
 
 
+def provision_workspace_environment(runner: Runner, workspace: Path, environment_file: Path | None) -> None:
+    if environment_file is None:
+        return
+    try:
+        source = environment_file.expanduser().resolve(strict=True)
+    except OSError as error:
+        raise ReviewFailure(f"project environment file is unavailable: {error}") from error
+    if not source.is_file():
+        raise ReviewFailure("project environment file is not a regular file")
+    if stat.S_IMODE(source.stat().st_mode) & 0o077:
+        raise ReviewFailure("project environment file must not be accessible by group or other users")
+    ignored = runner.run(
+        ["git", "check-ignore", "-q", ".env.local"],
+        cwd=workspace,
+        check=False,
+        log_output=False,
+    )
+    if ignored.returncode != 0:
+        raise ReviewFailure(".env.local must be ignored before reviewer environment provisioning")
+    destination = workspace / ".env.local"
+    if destination.is_symlink():
+        if destination.resolve(strict=False) == source:
+            return
+        raise ReviewFailure("reviewer .env.local points to an unexpected file")
+    if destination.exists():
+        raise ReviewFailure("reviewer .env.local exists but is not a controller-managed symlink")
+    destination.symlink_to(source)
+
+
 def prepare_workspace(
     runner: Runner,
     workspace: Path,
@@ -326,6 +362,7 @@ def prepare_workspace(
     base_branch: str,
     expected_base: str,
     expected_head: str,
+    environment_file: Path | None = None,
 ) -> None:
     workspace.parent.mkdir(parents=True, exist_ok=True)
     origin = runner.run(
@@ -390,6 +427,7 @@ def prepare_workspace(
 
     if workspace.exists():
         synchronize(workspace)
+        provision_workspace_environment(runner, workspace, environment_file)
         return
 
     temporary = Path(tempfile.mkdtemp(prefix=f".{workspace.name}.provision-", dir=workspace.parent))
@@ -399,6 +437,7 @@ def prepare_workspace(
         if workspace.exists():
             raise ReviewFailure("review workspace appeared concurrently during provisioning")
         temporary.rename(workspace)
+        provision_workspace_environment(runner, workspace, environment_file)
         runner.log(f"Provisioned clean reviewer workspace for {repository}")
     except Exception:
         if temporary.exists():
@@ -999,6 +1038,7 @@ def execute(config_path: Path, project_name: str, pr_number: int, apply: bool, f
             project["base_branch"],
             pr["baseRefOid"],
             pr["headRefOid"],
+            Path(project["environment_file"]) if project.get("environment_file") else None,
         )
         changed_files, diff = changed_files_and_diff(runner, workspace, pr["baseRefOid"], pr["headRefOid"])
         if len(changed_files) > int(project.get("max_changed_files", 200)):

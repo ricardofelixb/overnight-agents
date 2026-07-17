@@ -43,6 +43,7 @@
       "name": "example",
       "enabled": false,
       "source_path": "/absolute/path/to/project",
+      "environment_file": "../code-simplifier/state/env/example.env.local",
       "repository": "owner/repository",
       "base_branch": "main",
       "allowed_head_patterns": ["code-simplify/*"],

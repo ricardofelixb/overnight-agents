@@ -53,8 +53,9 @@ class ReviewSafetyTests(unittest.TestCase):
         self.git("init", "-b", "main", str(seed))
         self.git("config", "user.email", "reviewer@example.test", cwd=seed)
         self.git("config", "user.name", "Reviewer Test", cwd=seed)
+        (seed / ".gitignore").write_text(".env.local\n")
         (seed / "example.txt").write_text("safe\n")
-        self.git("add", "example.txt", cwd=seed)
+        self.git("add", ".gitignore", "example.txt", cwd=seed)
         self.git("commit", "-m", "initial", cwd=seed)
         self.git("remote", "add", "origin", str(origin), cwd=seed)
         self.git("push", "-u", "origin", "main", cwd=seed)
@@ -88,6 +89,52 @@ class ReviewSafetyTests(unittest.TestCase):
             self.assertEqual(len(quarantined), 1)
             self.assertEqual(self.git("status", "--porcelain", cwd=workspace), "")
             self.assertEqual(self.git("rev-parse", "HEAD", cwd=workspace), head)
+
+    def test_workspace_provisions_private_environment_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _, source, head = self.repository_fixture(root)
+            environment = root / "private" / "example.env.local"
+            environment.parent.mkdir()
+            environment.write_text("EXAMPLE=value\n")
+            environment.chmod(0o600)
+            workspace = root / "workspaces" / "example"
+            runner = Runner(root / "review.log")
+            prepare_workspace(
+                runner,
+                workspace,
+                source,
+                "trusted/example",
+                1,
+                "main",
+                head,
+                head,
+                environment,
+            )
+            self.assertTrue((workspace / ".env.local").is_symlink())
+            self.assertEqual((workspace / ".env.local").resolve(), environment.resolve())
+            self.assertEqual(self.git("status", "--porcelain", cwd=workspace), "")
+
+    def test_workspace_rejects_public_environment_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _, source, head = self.repository_fixture(root)
+            environment = root / "example.env.local"
+            environment.write_text("EXAMPLE=value\n")
+            environment.chmod(0o644)
+            runner = Runner(root / "review.log")
+            with self.assertRaisesRegex(ReviewFailure, "group or other"):
+                prepare_workspace(
+                    runner,
+                    root / "workspaces" / "example",
+                    source,
+                    "trusted/example",
+                    1,
+                    "main",
+                    head,
+                    head,
+                    environment,
+                )
 
     def test_orchestrator_prompt_requires_subagents_and_allows_proven_repairs(self) -> None:
         root = Path("/tmp/reviewer-test")

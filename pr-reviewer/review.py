@@ -600,12 +600,14 @@ Immutable controller inputs:
 - head SHA: {pr['headRefOid']}
 - exact PR changed-files list: {changed_files_path}
 - untrusted SHA-bound PR artifacts: {review_context}
-- trusted current official-docs manifest: {docs_manifest}
-- trusted promoted provider-skills manifest: {skills_manifest}
+- trusted current official-docs candidate catalog: {docs_manifest}
+- trusted promoted provider-skills candidate catalog: {skills_manifest}
 - trusted controller validation evidence for the original head: {validation_evidence}
 - repairs allowed: {str(repairs_allowed).lower()}
 
-Read the skill and its required references. Spawn the three named specialist sub-agents concurrently. They must inspect and report only; you own all edits. Reconcile their raw findings yourself.
+Read the skill and its core protocol. Spawn the three named specialist sub-agents concurrently. They must inspect and report only; you own all edits. Reconcile their raw findings yourself.
+
+Provider catalogs are trusted menus, not mandatory context. Inspect their metadata, then let the concrete code question determine whether provider evidence is needed. Read only the smallest applicable router/topic skill and official document. Do not open every skill or document for a candidate domain, and do not report provider evidence you did not actually use.
 
 Act on every proven, high-confidence, bounded improvement in the PR's behavioral slice, regardless of whether it was introduced by this PR, pre-existed at the base, or is a valid follow-up from PR artifacts. This includes correctness, security, reliability, performance, reuse, and worthwhile code hygiene. Official guidance is evidence, but it cannot invent product semantics.
 
@@ -615,7 +617,7 @@ If repairs are allowed, edit the working tree directly. Do not commit or push. A
 
 The validation manifest is trusted controller evidence. You may run focused checks, but the controller will run the full configured validation after your edits. Never change Git configuration, history, remotes, hooks, credentials, controller state, protected policy, dependency manifests/locks, CI configuration, or generated guidance.
 
-For every provider domain in the manifests, copy documentation URLs/timestamps and skill name/revision pairs exactly. Return only schema-conforming JSON.
+For provider evidence actually used, copy documentation URLs/timestamps and skill name/revision pairs exactly from the catalogs. Candidate domains do not require documentation records when provider evidence was unnecessary. Return only schema-conforming JSON.
 """
 
 
@@ -1057,13 +1059,13 @@ def execute(config_path: Path, project_name: str, pr_number: int, apply: bool, f
         changed_files_path.write_text("\n".join(changed_files) + "\n")
         reject_policy_changes(changed_files, project.get("protected_policy_patterns", []))
 
-        domains = detect_domains(changed_files, diff)
+        candidate_domains = detect_domains(changed_files, diff)
         skills_manifest = run_dir / "skills-manifest.json"
         skills_manifest.write_text(
-            json.dumps(validate_skill_lock(config | project, domains), indent=2, sort_keys=True) + "\n"
+            json.dumps(validate_skill_lock(config | project, candidate_domains), indent=2, sort_keys=True) + "\n"
         )
-        docs_manifest = refresh_docs(runner, config | project, domains, run_dir, 0)
-        validate_docs_manifest(config | project, docs_manifest, domains)
+        docs_manifest = refresh_docs(runner, config | project, candidate_domains, run_dir, 0)
+        validate_docs_manifest(config | project, docs_manifest, candidate_domains)
         controller_login = runner.run(["gh", "api", "user", "--jq", ".login"]).stdout.strip()
         review_context = capture_review_context(
             runner, config | project, repository, pr, run_dir, 0, controller_login
@@ -1105,7 +1107,7 @@ def execute(config_path: Path, project_name: str, pr_number: int, apply: bool, f
             validation_evidence,
             repairs_allowed,
         )
-        validate_docs_manifest(config | project, docs_manifest, domains)
+        validate_docs_manifest(config | project, docs_manifest, candidate_domains)
 
         original_head = pr["headRefOid"]
         final_head = original_head

@@ -59,4 +59,4 @@ If one finding is unsafe to resolve autonomously, leave that area unchanged. Ret
 
 `reviewed_files` records the complete inspected repository surface. It must contain every supplied PR changed file and may also contain the callers, consumers, tests, rules, and boundaries inspected to prove the result.
 
-Record provider documentation only when actually read. Copy provider IDs, URLs, retrieval timestamps, skill names, and skill revisions exactly from controller manifests.
+Record provider documentation only when actually read and used as evidence. A detected provider candidate does not require a documentation record when repository code, tests, types, and project rules are sufficient. Copy provider IDs, URLs, retrieval timestamps, skill names, and skill revisions exactly from controller manifests.

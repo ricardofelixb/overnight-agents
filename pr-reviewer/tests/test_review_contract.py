@@ -134,7 +134,7 @@ class ReviewContractTests(unittest.TestCase):
         value["blocking_reasons"] = []
         self.assertIn("repaired_blocked result requires blocking reasons", self.validate(value))
 
-    def test_provider_evidence_must_match_manifests(self) -> None:
+    def test_provider_candidates_do_not_require_evidence(self) -> None:
         value = result()
         docs = {"domains": ["react"], "documents": [{
             "domain": "react",
@@ -143,7 +143,17 @@ class ReviewContractTests(unittest.TestCase):
             "retrieved_at": "2026-07-16T12:00:00+00:00",
         }]}
         skills = {"domains": {"react": [{"name": "react-best-practices", "revision": SHA_A}]}}
-        self.assertIn("missing documentation evidence for react", self.validate(value, docs_manifest=docs, skills_manifest=skills))
+        self.assertEqual(self.validate(value, docs_manifest=docs, skills_manifest=skills), [])
+
+    def test_selected_provider_evidence_must_match_catalogs(self) -> None:
+        value = result()
+        docs = {"domains": ["react"], "documents": [{
+            "domain": "react",
+            "url": "https://react.dev/reference/react",
+            "final_url": "https://react.dev/reference/react",
+            "retrieved_at": "2026-07-16T12:00:00+00:00",
+        }]}
+        skills = {"domains": {"react": [{"name": "react-best-practices", "revision": SHA_A}]}}
         value["documentation"] = [{
             "provider": "react",
             "url": "https://evil.example/rules",
@@ -155,6 +165,8 @@ class ReviewContractTests(unittest.TestCase):
             "unapproved documentation URL for react",
             self.validate(value, docs_manifest=docs, skills_manifest=skills),
         )
+        value["documentation"][0]["url"] = "https://react.dev/reference/react"
+        self.assertEqual(self.validate(value, docs_manifest=docs, skills_manifest=skills), [])
 
 
 if __name__ == "__main__":

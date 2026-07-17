@@ -75,30 +75,41 @@ def refresh_domain(
         key = hashlib.sha256(url.encode()).hexdigest()
         content_path = domain_root / f"{key}.content"
         metadata_path = domain_root / f"{key}.json"
-        source = "network"
+        source = "cache"
         final_url = url
         retrieved_at = now()
-        try:
-            body, final_url = fetch(url, allowed_hosts, timeout, max_bytes)
-            atomic_write(content_path, body)
-            metadata = {
-                "url": url,
-                "final_url": final_url,
-                "retrieved_at": retrieved_at.isoformat(),
-                "sha256": hashlib.sha256(body).hexdigest(),
-            }
-            atomic_write(metadata_path, (json.dumps(metadata, indent=2, sort_keys=True) + "\n").encode())
-        except (OSError, ValueError, urllib.error.URLError) as error:
-            if not content_path.exists() or not metadata_path.exists():
+        cache_is_fresh = False
+        if content_path.exists() and metadata_path.exists():
+            try:
+                metadata = json.loads(metadata_path.read_text())
+                retrieved_at = parse_time(metadata["retrieved_at"])
+                final_url = metadata["final_url"]
+                final_host = urllib.parse.urlparse(final_url).hostname
+                content_hash = hashlib.sha256(content_path.read_bytes()).hexdigest()
+                cache_is_fresh = (
+                    now() - retrieved_at <= max_age
+                    and final_host in allowed_hosts
+                    and content_hash == metadata["sha256"]
+                )
+            except (KeyError, OSError, ValueError, json.JSONDecodeError):
+                cache_is_fresh = False
+
+        if not cache_is_fresh:
+            source = "network"
+            retrieved_at = now()
+            try:
+                body, final_url = fetch(url, allowed_hosts, timeout, max_bytes)
+                atomic_write(content_path, body)
+                metadata = {
+                    "url": url,
+                    "final_url": final_url,
+                    "retrieved_at": retrieved_at.isoformat(),
+                    "sha256": hashlib.sha256(body).hexdigest(),
+                }
+                atomic_write(metadata_path, (json.dumps(metadata, indent=2, sort_keys=True) + "\n").encode())
+            except (OSError, ValueError, urllib.error.URLError) as error:
                 errors.append(f"{name}: {url}: {error}")
                 continue
-            metadata = json.loads(metadata_path.read_text())
-            retrieved_at = parse_time(metadata["retrieved_at"])
-            if now() - retrieved_at > max_age:
-                errors.append(f"{name}: stale cache for {url}: {error}")
-                continue
-            final_url = metadata["final_url"]
-            source = "cache"
 
         entries.append(
             {

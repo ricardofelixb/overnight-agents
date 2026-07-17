@@ -152,6 +152,8 @@ class ReviewSafetyTests(unittest.TestCase):
         self.assertIn("pre-existed at the base", prompt)
         self.assertIn(str(root / "context.json"), prompt)
         self.assertIn("repairs allowed: true", prompt)
+        self.assertIn("trusted menus, not mandatory context", prompt)
+        self.assertIn("Do not open every skill or document", prompt)
 
     def test_comment_reports_clean_and_repaired_outcomes(self) -> None:
         clean = {

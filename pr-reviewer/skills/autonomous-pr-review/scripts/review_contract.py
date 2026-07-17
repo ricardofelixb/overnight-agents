@@ -114,15 +114,19 @@ def validate_result(
     else:
         errors.append(f"invalid status: {status!r}")
 
-    required_domains = set(docs_manifest.get("domains", []))
+    candidate_domains = set(docs_manifest.get("domains", []))
     documentation = result.get("documentation", [])
     manifest_docs: dict[str, list[dict[str, Any]]] = {}
     for item in docs_manifest.get("documents", []):
         manifest_docs.setdefault(item.get("domain"), []).append(item)
     locked = skills_manifest.get("domains", {})
-    for domain in required_domains:
-        records = [item for item in documentation if isinstance(item, dict) and item.get("provider") == domain]
-        require(bool(records), f"missing documentation evidence for {domain}")
+    for record in documentation:
+        if not isinstance(record, dict):
+            continue
+        domain = record.get("provider")
+        require(domain in candidate_domains, f"documentation provider is not a candidate domain: {domain}")
+        if domain not in candidate_domains:
+            continue
         allowed_urls = {
             url
             for item in manifest_docs.get(domain, [])
@@ -130,21 +134,20 @@ def validate_result(
             if isinstance(url, str)
         }
         skill_revisions = {(item.get("name"), item.get("revision")) for item in locked.get(domain, [])}
-        for record in records:
-            require(record.get("url") in allowed_urls, f"unapproved documentation URL for {domain}")
-            require(
-                (record.get("skill"), record.get("skill_revision")) in skill_revisions,
-                f"unapproved skill name/revision pair for {domain}",
-            )
-            matching = [
-                item
-                for item in manifest_docs.get(domain, [])
-                if record.get("url") in {item.get("url"), item.get("final_url")}
-            ]
-            require(
-                any(record.get("retrieved_at") == item.get("retrieved_at") for item in matching),
-                f"documentation retrieval timestamp mismatch for {domain}",
-            )
+        require(record.get("url") in allowed_urls, f"unapproved documentation URL for {domain}")
+        require(
+            (record.get("skill"), record.get("skill_revision")) in skill_revisions,
+            f"unapproved skill name/revision pair for {domain}",
+        )
+        matching = [
+            item
+            for item in manifest_docs.get(domain, [])
+            if record.get("url") in {item.get("url"), item.get("final_url")}
+        ]
+        require(
+            any(record.get("retrieved_at") == item.get("retrieved_at") for item in matching),
+            f"documentation retrieval timestamp mismatch for {domain}",
+        )
 
     return errors
 

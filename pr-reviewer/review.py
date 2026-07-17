@@ -546,6 +546,8 @@ Read the skill and its required references. Spawn the three named specialist sub
 
 Act on every proven, high-confidence, bounded improvement in the PR's behavioral slice, regardless of whether it was introduced by this PR, pre-existed at the base, or is a valid follow-up from PR artifacts. This includes correctness, security, reliability, performance, reuse, and worthwhile code hygiene. Official guidance is evidence, but it cannot invent product semantics.
 
+Do not let an ambiguous issue suppress independent safe improvements. If both exist, leave the ambiguous area untouched, retain and verify the independent repairs, and return repaired_blocked. In reviewed_files, include every PR changed file plus every contextual repository file actually inspected.
+
 If repairs are allowed, edit the working tree directly. Do not commit or push. After edits, spawn a fresh verifier sub-agent that receives raw diffs and evidence rather than your conclusions. If repairs are not allowed, do not edit and return blocked when an actionable repair exists.
 
 The validation manifest is trusted controller evidence. You may run focused checks, but the controller will run the full configured validation after your edits. Never change Git configuration, history, remotes, hooks, credentials, controller state, protected policy, dependency manifests/locks, CI configuration, or generated guidance.
@@ -677,18 +679,35 @@ def run_project_commands(
     commands: list[list[str]],
     markers: list[str],
     environment_overrides: dict[str, str] | None = None,
+    attempts: int = 1,
 ) -> str:
-    combined = ""
-    for command in commands:
-        combined += runner.run(
-            command,
-            cwd=workspace,
-            env=validation_environment(environment_overrides),
-        ).stdout or ""
-    for marker in markers:
-        if marker not in combined:
-            raise ReviewFailure(f"validation success marker not found: {marker}")
-    return combined
+    outputs: list[str] = []
+    last_failure = "validation failed"
+    for attempt in range(1, attempts + 1):
+        combined = ""
+        failed = False
+        for command in commands:
+            result = runner.run(
+                command,
+                cwd=workspace,
+                env=validation_environment(environment_overrides),
+                check=False,
+            )
+            combined += result.stdout or ""
+            if result.returncode != 0:
+                failed = True
+                last_failure = f"command failed ({result.returncode}): {command[0]}"
+                break
+        missing = [marker for marker in markers if marker not in combined]
+        if missing:
+            failed = True
+            last_failure = f"validation success marker not found: {missing[0]}"
+        outputs.append(f"=== attempt {attempt}/{attempts} ===\n{combined}")
+        if not failed:
+            return "".join(outputs)
+        if attempt < attempts:
+            runner.log(f"Validation attempt {attempt}/{attempts} failed; retrying the full configured validation")
+    raise ReviewFailure(last_failure)
 
 
 def write_validation_evidence(
@@ -748,7 +767,10 @@ def format_review_comment(
     validation_commands: list[list[str]],
 ) -> str:
     status = result["status"]
-    if status == "blocked":
+    if status == "repaired_blocked":
+        heading = "## Autonomous review: improved, decision still required"
+        outcome = "I fixed and verified independent proven issues on this PR branch, but one or more separate decisions still prevent a safe merge recommendation."
+    elif status == "blocked":
         heading = "## Autonomous review: decision required"
         outcome = "I could not safely complete this PR without guessing about behavior or scope."
     elif status == "repaired":
@@ -902,7 +924,7 @@ def write_summary(run_dir: Path, value: dict[str, Any]) -> None:
     (run_dir / "summary.json").write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
 
 
-def execute(config_path: Path, project_name: str, pr_number: int, apply: bool) -> int:
+def execute(config_path: Path, project_name: str, pr_number: int, apply: bool, force: bool = False) -> int:
     config, _ = load_configuration(config_path)
     project = select_project(config, project_name)
     require_commands()
@@ -934,10 +956,10 @@ def execute(config_path: Path, project_name: str, pr_number: int, apply: bool) -
         eligibility_errors = evaluate_pr_eligibility(pr, project)
         if eligibility_errors:
             raise ReviewFailure("ineligible PR: " + "; ".join(eligibility_errors))
-        if review_is_current(state_root, project_name, pr):
+        if not force and review_is_current(state_root, project_name, pr):
             runner.log(f"Skipping PR #{pr_number}; head and PR context were already reviewed")
             return 0
-        if legacy_head_was_reviewed(state_root, project_name, pr):
+        if not force and legacy_head_was_reviewed(state_root, project_name, pr):
             record_review_state(state_root, project_name, pr, "legacy-reviewed")
             runner.log(f"Skipping PR #{pr_number}; migrated prior review state for this head")
             return 0
@@ -987,9 +1009,10 @@ def execute(config_path: Path, project_name: str, pr_number: int, apply: bool) -
         validation_commands = project["validation_commands"]
         success_markers = project.get("validation_success_markers", [])
         validation_env = project.get("validation_environment", {})
+        validation_attempts = int(project.get("validation_attempts", 1))
         setup_output = run_project_commands(runner, workspace, setup_commands, [], validation_env)
         validation_output = run_project_commands(
-            runner, workspace, validation_commands, success_markers, validation_env
+            runner, workspace, validation_commands, success_markers, validation_env, validation_attempts
         )
         assert_clean_workspace(runner, workspace, "initial setup/validation")
         validation_evidence = write_validation_evidence(
@@ -1022,12 +1045,19 @@ def execute(config_path: Path, project_name: str, pr_number: int, apply: bool) -
 
         original_head = pr["headRefOid"]
         final_head = original_head
-        if result["status"] == "repaired":
+        if result["status"] in {"repaired", "repaired_blocked"}:
             if not repairs_allowed:
                 raise ReviewFailure("orchestrator repaired files without controller authorization")
             repair_fingerprint = workspace_fingerprint(runner, workspace)
             run_project_commands(runner, workspace, setup_commands, [], validation_env)
-            run_project_commands(runner, workspace, validation_commands, success_markers, validation_env)
+            run_project_commands(
+                runner,
+                workspace,
+                validation_commands,
+                success_markers,
+                validation_env,
+                validation_attempts,
+            )
             if workspace_fingerprint(runner, workspace) != repair_fingerprint:
                 raise ReviewFailure("setup/validation changed the orchestrator repair")
             final_head = commit_and_push_repair(runner, workspace, pr)
@@ -1060,7 +1090,7 @@ def execute(config_path: Path, project_name: str, pr_number: int, apply: bool) -
         }
         write_summary(run_dir, summary)
 
-        if result["status"] == "blocked":
+        if result["status"] in {"blocked", "repaired_blocked"}:
             if project.get("telegram_notifications_enabled", False):
                 try:
                     event_path = enqueue_notification(
@@ -1076,7 +1106,14 @@ def execute(config_path: Path, project_name: str, pr_number: int, apply: bool) -
                             "url": pr["url"],
                             "head_sha": original_head,
                             "blockers": result.get("blocking_reasons", []),
-                            "findings": [],
+                            "findings": [
+                                {
+                                    "severity": "fixed",
+                                    "title": item.get("title", "Verified repair"),
+                                }
+                                for item in result.get("repairs", [])
+                                if isinstance(item, dict)
+                            ],
                         },
                     )
                     if event_path is not None:
@@ -1093,9 +1130,10 @@ def main() -> int:
     parser.add_argument("--project", required=True)
     parser.add_argument("--pr", type=int, required=True)
     parser.add_argument("--apply", action="store_true", help="Allow verified repairs to be committed and pushed")
+    parser.add_argument("--force", action="store_true", help="Review even when this exact PR state was already handled")
     args = parser.parse_args()
     try:
-        return execute(args.config, args.project, args.pr, args.apply)
+        return execute(args.config, args.project, args.pr, args.apply, args.force)
     except ReviewFailure as error:
         print(f"BLOCKED: {error}", file=sys.stderr)
         return 2

@@ -62,7 +62,7 @@ def validate_result(
     except ContractError as error:
         errors.append(str(error))
         reviewed, reported_changes, test_changes = set(), set(), set()
-    require(reviewed == changed_files, "reviewed_files must exactly match the PR changed files")
+    require(changed_files <= reviewed, "reviewed_files must include every PR changed file")
     require(test_changes <= reported_changes, "tests_changed must be a subset of changed_files")
 
     specialists = result.get("specialists", [])
@@ -97,6 +97,20 @@ def validate_result(
         require(bool(blockers), "blocked result requires blocking reasons")
         require(not repairs, "blocked result cannot contain repairs")
         require(not reported_changes, "blocked result cannot leave changed files")
+    elif status == "repaired_blocked":
+        require(bool(repairs), "repaired_blocked result requires repairs")
+        require(bool(reported_changes), "repaired_blocked result requires changed files")
+        require(bool(blockers), "repaired_blocked result requires blocking reasons")
+        require(verification.get("performed") is True, "repaired_blocked result requires fresh verification")
+        require(verification.get("verdict") == "passed", "repaired_blocked result requires passed verification")
+        repair_files = {
+            path
+            for repair in repairs
+            if isinstance(repair, dict)
+            for path in repair.get("files", [])
+            if isinstance(path, str)
+        }
+        require(repair_files == reported_changes, "repair files must exactly match changed_files")
     else:
         errors.append(f"invalid status: {status!r}")
 

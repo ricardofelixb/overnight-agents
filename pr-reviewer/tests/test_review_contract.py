@@ -58,6 +58,11 @@ def result(status: str = "clean") -> dict:
     if status == "blocked":
         value["verification"] = {"performed": True, "verdict": "blocked", "summary": "ambiguous behavior"}
         value["blocking_reasons"] = ["product behavior is ambiguous"]
+    if status == "repaired_blocked":
+        repaired = result("repaired")
+        value.update(repaired)
+        value["status"] = "repaired_blocked"
+        value["blocking_reasons"] = ["separate product behavior is ambiguous"]
     return value
 
 
@@ -96,7 +101,7 @@ class ReviewContractTests(unittest.TestCase):
         self.assertEqual(visit(schema), [])
 
     def test_clean_repaired_and_blocked_results_are_valid(self) -> None:
-        for status in ("clean", "repaired", "blocked"):
+        for status in ("clean", "repaired", "blocked", "repaired_blocked"):
             with self.subTest(status=status):
                 self.assertEqual(self.validate(result(status)), [])
 
@@ -104,6 +109,13 @@ class ReviewContractTests(unittest.TestCase):
         value = result()
         value["specialists"] = value["specialists"][:2]
         self.assertIn("all required specialist sub-agents must report", self.validate(value))
+
+    def test_reviewed_files_may_include_context_but_must_cover_the_diff(self) -> None:
+        value = result()
+        value["reviewed_files"].append("src/context.ts")
+        self.assertEqual(self.validate(value), [])
+        value["reviewed_files"] = ["src/context.ts"]
+        self.assertIn("reviewed_files must include every PR changed file", self.validate(value))
 
     def test_repaired_result_accepts_pre_existing_provenance(self) -> None:
         self.assertEqual(result("repaired")["repairs"][0]["provenance"], "pre_existing")
@@ -115,6 +127,12 @@ class ReviewContractTests(unittest.TestCase):
         errors = self.validate(value)
         self.assertIn("repaired result requires fresh verification", errors)
         self.assertIn("repaired result requires passed verification", errors)
+
+    def test_repaired_blocked_keeps_repairs_and_requires_a_blocker(self) -> None:
+        value = result("repaired_blocked")
+        self.assertEqual(self.validate(value), [])
+        value["blocking_reasons"] = []
+        self.assertIn("repaired_blocked result requires blocking reasons", self.validate(value))
 
     def test_provider_evidence_must_match_manifests(self) -> None:
         value = result()

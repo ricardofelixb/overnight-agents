@@ -114,6 +114,7 @@ def validate_config(config: dict[str, Any], config_path: Path) -> list[str]:
             "max_document_bytes": (1000, 20_000_000),
             "docs_max_age_hours": (1, 168),
             "skill_max_age_days": (1, 31),
+            "validation_attempts": (1, 3),
         }
         for field, (minimum, maximum) in numeric_ranges.items():
             value = merged.get(field)

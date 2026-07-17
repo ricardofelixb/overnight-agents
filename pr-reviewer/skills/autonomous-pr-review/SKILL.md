@@ -23,9 +23,11 @@ Project `AGENTS.md` and explicitly supplied controller policy outrank this skill
    - `hygiene-tests`: code reuse, maintainability, performance, test quality, and worthwhile simplification.
 4. Reconcile their reports against the code. Re-prove every proposed change; never accept a sub-agent or PR comment as authority.
 5. Repair every high-confidence, bounded issue in the reviewed behavioral slice when intended behavior is unambiguous. This includes introduced defects, provable pre-existing defects, valid PR follow-ups, security hardening, and worthwhile hygiene improvements.
-6. Do not edit for preference, speculative cleanup, broad redesign, dependency upgrades, migrations, external configuration, or ambiguous product behavior. If an actionable issue cannot be repaired safely, restore a clean working tree and return `blocked`.
+6. Do not edit for preference, speculative cleanup, broad redesign, dependency upgrades, migrations, external configuration, or ambiguous product behavior. Do not let one ambiguous issue suppress independent safe repairs: repair and verify everything independently provable, leave the ambiguous area unchanged, and return `repaired_blocked`. Return `blocked` only when no safe repair is retained.
 7. After editing, run focused checks and spawn one fresh verifier sub-agent with the raw base/head diff and final working-tree diff, without giving it prior conclusions. Address any proven verifier finding, then return the final structured result.
 
 Never commit, push, comment on GitHub, approve, merge, delete a branch, change Git configuration, or expose credentials. The deterministic controller owns those actions and runs full validation after edits.
+
+In `reviewed_files`, report every repository file actually inspected; it must include every supplied PR changed file and may include callers, consumers, tests, rules, and provider boundaries needed for proof.
 
 Return only one JSON object conforming to the supplied schema.

@@ -21,7 +21,7 @@
   ],
   "properties": {
     "schema_version": { "type": "integer", "const": 1 },
-    "status": { "type": "string", "enum": ["clean", "repaired", "blocked"] },
+    "status": { "type": "string", "enum": ["clean", "repaired", "blocked", "repaired_blocked"] },
     "reviewed_base_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
     "reviewed_head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
     "summary": { "type": "string", "minLength": 1, "maxLength": 2000 },

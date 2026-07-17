@@ -48,12 +48,15 @@ Each specialist must provide concrete evidence, reject speculative findings, and
 6. Give a fresh verifier only raw artifacts: base SHA, head SHA, original PR diff, final working-tree diff, project rules, and relevant tests/docs. Do not leak intended conclusions.
 7. A repaired result requires the verifier to pass. Full project validation remains the controller's responsibility.
 
-If safe completion is impossible, leave no working-tree changes and return `blocked` with the exact decision or evidence required.
+If one finding is unsafe to resolve autonomously, leave that area unchanged. Retain independent safe repairs, verify them, and return `repaired_blocked` with the exact remaining decision or evidence required. Leave no working-tree changes and return `blocked` only when no independently safe repair is retained.
 
 ## Result discipline
 
 - `clean`: no actionable issue survived proof; no files changed; no blockers.
 - `repaired`: at least one proven repair was applied; reported files exactly match the working tree; the fresh verifier passed; no blockers.
 - `blocked`: an actionable ambiguity or unsafe repair remains; no files changed; blocking reasons are precise.
+- `repaired_blocked`: at least one independent proven repair was applied and verified, while a separate actionable ambiguity or unsafe repair remains unchanged; blocking reasons are precise.
+
+`reviewed_files` records the complete inspected repository surface. It must contain every supplied PR changed file and may also contain the callers, consumers, tests, rules, and boundaries inspected to prove the result.
 
 Record provider documentation only when actually read. Copy provider IDs, URLs, retrieval timestamps, skill names, and skill revisions exactly from controller manifests.

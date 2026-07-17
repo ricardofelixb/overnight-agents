@@ -23,6 +23,7 @@ from review import (
     prepare_workspace,
     record_review_state,
     review_is_current,
+    run_project_commands,
     tree_hash,
     upsert_review_comment,
     validate_docs_manifest,
@@ -137,6 +138,19 @@ class ReviewSafetyTests(unittest.TestCase):
         self.assertIn("fixed and safe to merge", repaired_comment)
         self.assertIn("pre-existing", repaired_comment)
         self.assertIn("Repair commit", repaired_comment)
+        repaired_blocked = repaired | {
+            "status": "repaired_blocked",
+            "blocking_reasons": ["product decision required"],
+        }
+        repaired_blocked_comment = format_review_comment(
+            repaired_blocked,
+            original_head="a" * 40,
+            final_head="b" * 40,
+            validation_commands=[["pnpm", "run", "validate"]],
+        )
+        self.assertIn("improved, decision still required", repaired_blocked_comment)
+        self.assertIn("product decision required", repaired_blocked_comment)
+        self.assertIn("pnpm run validate", repaired_blocked_comment)
 
     def test_review_state_skips_only_identical_head_and_pr_context(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -209,6 +223,37 @@ class ReviewSafetyTests(unittest.TestCase):
                 evidence["validation_output_sha256"],
                 hashlib.sha256(output.read_bytes()).hexdigest(),
             )
+
+    def test_validation_retries_the_complete_gate_once(self) -> None:
+        class RetryRunner:
+            def __init__(self) -> None:
+                self.calls = 0
+                self.messages: list[str] = []
+
+            def run(self, command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                self.calls += 1
+                return subprocess.CompletedProcess(
+                    command,
+                    1 if self.calls == 1 else 0,
+                    "transient failure\n" if self.calls == 1 else "all passed\n",
+                    "",
+                )
+
+            def log(self, message: str) -> None:
+                self.messages.append(message)
+
+        runner = RetryRunner()
+        output = run_project_commands(
+            runner,  # type: ignore[arg-type]
+            Path("/tmp"),
+            [["validate"]],
+            ["passed"],
+            attempts=2,
+        )
+        self.assertEqual(runner.calls, 2)
+        self.assertIn("transient failure", output)
+        self.assertIn("all passed", output)
+        self.assertEqual(len(runner.messages), 1)
 
     def test_review_context_is_sha_bound_and_size_limited(self) -> None:
         class GraphqlRunner:

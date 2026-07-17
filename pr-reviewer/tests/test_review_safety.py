@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,6 +18,7 @@ from review import (
     ReviewFailure,
     Runner,
     capture_review_context,
+    fetch_pr_at_head,
     format_review_comment,
     legacy_head_was_reviewed,
     orchestrator_prompt,
@@ -254,6 +256,33 @@ class ReviewSafetyTests(unittest.TestCase):
         self.assertIn("transient failure", output)
         self.assertIn("all passed", output)
         self.assertEqual(len(runner.messages), 1)
+
+    def test_pr_head_projection_is_polled_after_push(self) -> None:
+        class ProjectionRunner:
+            def __init__(self) -> None:
+                self.calls = 0
+                self.messages: list[str] = []
+
+            def run(self, command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                self.calls += 1
+                head = "a" * 40 if self.calls == 1 else "b" * 40
+                return subprocess.CompletedProcess(command, 0, json.dumps({"headRefOid": head}), "")
+
+            def log(self, message: str) -> None:
+                self.messages.append(message)
+
+        runner = ProjectionRunner()
+        with mock.patch("review.time.sleep") as sleep:
+            pr = fetch_pr_at_head(
+                runner,  # type: ignore[arg-type]
+                "trusted/example",
+                1,
+                "b" * 40,
+                attempts=2,
+            )
+        self.assertEqual(pr["headRefOid"], "b" * 40)
+        self.assertEqual(runner.calls, 2)
+        sleep.assert_called_once_with(1)
 
     def test_review_context_is_sha_bound_and_size_limited(self) -> None:
         class GraphqlRunner:

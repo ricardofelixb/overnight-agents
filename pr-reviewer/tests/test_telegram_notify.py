@@ -50,6 +50,7 @@ def blocked_event() -> dict:
         "title": "Simplify caja",
         "url": "https://github.com/example/exac/pull/108",
         "head_sha": "b" * 40,
+        "repairs_applied": True,
         "blockers": ["receipt-history scope requires a product decision"],
         "findings": [{"id": "scope", "severity": "P1", "title": "Receipt scope is ignored"}],
     }
@@ -102,6 +103,7 @@ class TelegramNotificationTests(unittest.TestCase):
         message = format_blocked_message(blocked_event())
         self.assertIn("requires a decision", message)
         self.assertIn("P1: Receipt scope is ignored", message)
+        self.assertIn("independent repairs were pushed", message)
         self.assertIn("No merge", message)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -135,6 +135,7 @@ def format_blocked_message(event: dict[str, Any]) -> str:
     head_sha = _single_line(event.get("head_sha"), 40)
     blockers = [_single_line(item, 500) for item in event.get("blockers", []) if item]
     findings = [item for item in event.get("findings", []) if isinstance(item, dict)]
+    repairs_applied = event.get("repairs_applied") is True
 
     lines = [
         f"🚫 {project}: PR #{number} requires a decision",
@@ -142,7 +143,11 @@ def format_blocked_message(event: dict[str, Any]) -> str:
         url,
         "",
         f"Reviewed head: {head_sha[:12]}",
-        "Autonomous merge stopped before any repair or merge because the evidence is not safe to resolve automatically.",
+        (
+            "Verified independent repairs were pushed, but the merge recommendation stopped because a separate issue is not safe to resolve automatically."
+            if repairs_applied
+            else "Autonomous merge stopped before any repair or merge because the evidence is not safe to resolve automatically."
+        ),
     ]
     if findings:
         lines.extend(["", "Confirmed findings:"])

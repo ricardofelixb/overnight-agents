@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -197,6 +198,29 @@ def require_commands() -> None:
 def fetch_pr(runner: Runner, repository: str, number: int) -> dict[str, Any]:
     result = runner.run(["gh", "pr", "view", str(number), "--repo", repository, "--json", PR_FIELDS])
     return json.loads(result.stdout)
+
+
+def fetch_pr_at_head(
+    runner: Runner,
+    repository: str,
+    number: int,
+    expected_head: str,
+    *,
+    attempts: int = 6,
+) -> dict[str, Any]:
+    """Wait briefly for GitHub's PR head projection to reflect a successful branch push."""
+    for attempt in range(1, attempts + 1):
+        pr = fetch_pr(runner, repository, number)
+        if pr.get("headRefOid") == expected_head:
+            return pr
+        if attempt < attempts:
+            delay = min(2 ** (attempt - 1), 4)
+            runner.log(
+                f"GitHub PR head has not reached {expected_head[:12]}; "
+                f"polling again in {delay}s ({attempt}/{attempts})"
+            )
+            time.sleep(delay)
+    raise ReviewFailure("GitHub did not advance to the controller-pushed repair commit")
 
 
 def fetch_review_threads_context(runner: Runner, repository: str, pr_number: int) -> list[dict[str, Any]]:
@@ -1061,9 +1085,7 @@ def execute(config_path: Path, project_name: str, pr_number: int, apply: bool, f
             if workspace_fingerprint(runner, workspace) != repair_fingerprint:
                 raise ReviewFailure("setup/validation changed the orchestrator repair")
             final_head = commit_and_push_repair(runner, workspace, pr)
-            pr = fetch_pr(runner, repository, pr_number)
-            if pr["headRefOid"] != final_head:
-                raise ReviewFailure("GitHub did not advance to the controller-pushed repair commit")
+            pr = fetch_pr_at_head(runner, repository, pr_number, final_head)
         elif result["status"] == "clean":
             assert_clean_workspace(runner, workspace, "clean orchestrator result")
         else:
@@ -1106,6 +1128,7 @@ def execute(config_path: Path, project_name: str, pr_number: int, apply: bool, f
                             "url": pr["url"],
                             "head_sha": original_head,
                             "blockers": result.get("blocking_reasons", []),
+                            "repairs_applied": bool(result.get("repairs")),
                             "findings": [
                                 {
                                     "severity": "fixed",

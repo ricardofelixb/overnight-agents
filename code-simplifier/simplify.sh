@@ -137,18 +137,18 @@ fi
 # --- Run agent ---
 set +e
 if [[ "${USE_CODEX:-false}" == "true" ]]; then
-  log "Starting Codex (gpt-5.6-sol)..."
+  log "Starting Codex..."
   codex exec \
     --dangerously-bypass-approvals-and-sandbox \
-    -c 'model_reasoning_effort="medium"' \
-    -m "gpt-5.6-sol" \
+    -c 'model_reasoning_effort="high"' \
+    -m "gpt-5.6-terra" \
     -C "$PROJECT_PATH" \
     "$PROMPT" >> "$LOG_FILE" 2>&1
   EXIT_CODE=$?
 else
-  log "Starting Claude..."
+  log "Starting Claude (claude-opus-4-8)..."
   unset CLAUDECODE
-  claude --dangerously-skip-permissions --model 'claude-sonnet-5[1m]' --effort medium -p "$PROMPT" >> "$LOG_FILE" 2>&1
+  claude --dangerously-skip-permissions --model 'claude-opus-4-8' --effort medium -p "$PROMPT" >> "$LOG_FILE" 2>&1
   EXIT_CODE=$?
 fi
 set -e

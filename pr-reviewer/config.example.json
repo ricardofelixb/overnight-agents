@@ -8,7 +8,7 @@
   "telegram_env": "./.env",
   "defaults": {
     "mode": "repair",
-    "model": "gpt-5.6-sol",
+    "model": "gpt-5.6-terra",
     "reasoning_effort": "high",
     "command_timeout_seconds": 7200,
     "max_changed_files": 200,

@@ -43,6 +43,10 @@ Signals include WorkOS/AuthKit imports, auth/session code, organization membersh
 - Consult `https://workos.com/docs/llms.txt`, the exact SDK documentation, and the installed SDK/component types.
 - Verify session, cookie, PKCE/CSRF, issuer/audience, organization context, role/permission, cross-tenant, webhook signature, and token-refresh behavior as applicable.
 
+### Stripe
+
+- Consult `https://docs.stripe.com/llms.txt`.
+
 ## Unknown providers
 
 Detect provider ownership from imports, manifests, generated files, and configuration. Prefer official vendor documentation and official skills. Do not use community guidance as the sole basis for a blocking finding or autonomous repair.

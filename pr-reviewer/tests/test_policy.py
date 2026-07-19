@@ -121,6 +121,32 @@ class PolicyTests(unittest.TestCase):
             validate_config(config, Path("x")),
         )
 
+    def test_validation_correction_cycles_are_bounded(self) -> None:
+        config = {
+            "version": 1,
+            "skill_path": "skill",
+            "workspace_root": "workspaces",
+            "state_root": "state",
+            "docs_catalog": "docs.json",
+            "skills_lock": "skills.json",
+            "telegram_env": ".env",
+            "webhook_env": ".env",
+            "defaults": {"validation_correction_cycles": 4},
+            "projects": [{
+                "name": "example",
+                "source_path": "/tmp/example",
+                "repository": "trusted/example",
+                "base_branch": "main",
+                "allowed_head_patterns": ["*"],
+                "allowed_authors": [],
+                "validation_commands": [["true"]],
+            }],
+        }
+        self.assertIn(
+            "example: validation_correction_cycles must be between 1 and 3",
+            validate_config(config, Path("x")),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -32,3 +32,15 @@ Never commit, push, comment on GitHub, approve, merge, delete a branch, change G
 In `reviewed_files`, report every repository file actually inspected; it must include every supplied PR changed file and may include callers, consumers, tests, rules, and provider boundaries needed for proof.
 
 Return only one JSON object conforming to the supplied schema.
+
+## Correct a controller validation failure
+
+When the controller explicitly supplies a previous contract-valid result and validation failure evidence, resume the existing working-tree repair instead of restarting the review:
+
+1. Do not respawn the three specialist reviews. Inspect the exact failure, previous result, current diff, and only the files needed to reproduce the error.
+2. Repair the failure at its cause without weakening validation, tests, types, lint, authorization, error handling, dependency policy, or CI configuration.
+3. Run the smallest focused reproduction and relevant checks.
+4. Spawn one fresh read-only verifier sub-agent with the raw original PR diff, current working-tree diff, and validation evidence. Reconcile any proven finding.
+5. Return a complete updated result describing the final working tree exactly. Preserve still-valid findings and evidence from the prior result.
+
+If the proposed repair is unnecessary or unsafe, revert it completely. Return `clean` only when no actionable issue remains in the original PR; otherwise return `blocked` with a precise reason. Never leave an unverified repair behind.

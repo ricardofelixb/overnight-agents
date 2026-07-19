@@ -21,6 +21,7 @@ from review import (
     capture_ci_context,
     capture_review_context,
     collect_project_commands,
+    correction_prompt,
     fetch_pr_at_head,
     format_review_comment,
     legacy_head_was_reviewed,
@@ -32,6 +33,7 @@ from review import (
     tree_hash,
     upsert_review_comment,
     validate_docs_manifest,
+    validate_repair_with_corrections,
     validate_skill_lock,
     write_validation_evidence,
 )
@@ -163,6 +165,21 @@ class ReviewSafetyTests(unittest.TestCase):
         self.assertIn("Do not open every skill or document", prompt)
         self.assertIn(str(root / "ai-files.json"), prompt)
         self.assertIn("generated guidelines", prompt)
+
+    def test_correction_prompt_resumes_without_restarting_specialists(self) -> None:
+        root = Path("/tmp/reviewer-test")
+        prompt = correction_prompt(
+            skill_path=root / "skill",
+            pr={"url": "https://example.test/pr/1", "number": 1, "baseRefOid": "a" * 40, "headRefOid": "b" * 40},
+            changed_files_path=root / "changed.txt",
+            prior_result=root / "result.json",
+            validation_evidence=root / "validation.json",
+        )
+        self.assertIn("bounded validation-correction cycle, not a new review", prompt)
+        self.assertIn("Do not restart the three specialist reviews", prompt)
+        self.assertIn(str(root / "result.json"), prompt)
+        self.assertIn(str(root / "validation.json"), prompt)
+        self.assertIn("spawn one fresh read-only verifier", prompt)
 
     def test_convex_ai_files_snapshot_is_fresh_and_hash_verified(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -395,6 +412,53 @@ class ReviewSafetyTests(unittest.TestCase):
         self.assertFalse(passed)
         self.assertIn("type error at src/example.ts:7", output)
         self.assertEqual(failure, "command failed (1): validate")
+
+    def test_failed_repair_validation_is_corrected_then_revalidated(self) -> None:
+        runner = mock.Mock()
+        runner.log = mock.Mock()
+        original = {"status": "repaired", "summary": "original"}
+        corrected = {"status": "repaired", "summary": "corrected"}
+        with (
+            mock.patch("review.workspace_fingerprint", return_value={"test.ts": "hash"}),
+            mock.patch("review.run_project_commands", return_value="setup passed"),
+            mock.patch(
+                "review.collect_project_commands",
+                side_effect=[
+                    ("type error", False, "command failed (1): validate"),
+                    ("all passed", True, ""),
+                ],
+            ) as collect,
+            mock.patch(
+                "review.write_validation_evidence",
+                side_effect=[Path("/tmp/validation-1.json"), Path("/tmp/validation-2.json")],
+            ),
+            mock.patch(
+                "review.run_correction_orchestrator",
+                return_value=(corrected, Path("/tmp/corrected-result.json")),
+            ) as correct,
+        ):
+            result = validate_repair_with_corrections(
+                runner,
+                {"validation_correction_cycles": 2},
+                Path("/tmp/workspace"),
+                {"baseRefOid": "a" * 40, "headRefOid": "b" * 40},
+                Path("/tmp/run"),
+                Path("/tmp/changed.txt"),
+                Path("/tmp/docs.json"),
+                Path("/tmp/skills.json"),
+                [["setup"]],
+                [["validate"]],
+                [],
+                {},
+                original,
+            )
+        self.assertIs(result, corrected)
+        self.assertEqual(collect.call_count, 2)
+        self.assertTrue(all(call.kwargs["attempts"] == 1 for call in collect.call_args_list))
+        correct.assert_called_once()
+        runner.log.assert_called_once_with(
+            "Post-repair validation failed; starting focused correction cycle 1/2"
+        )
 
     def test_pr_head_projection_is_polled_after_push(self) -> None:
         class ProjectionRunner:

@@ -121,6 +121,7 @@ def validate_config(config: dict[str, Any], config_path: Path) -> list[str]:
             "skill_max_age_days": (1, 31),
             "ai_files_max_age_days": (1, 31),
             "validation_attempts": (1, 3),
+            "validation_correction_cycles": (1, 3),
         }
         for field, (minimum, maximum) in numeric_ranges.items():
             value = merged.get(field)

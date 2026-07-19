@@ -192,7 +192,8 @@ The initial validation gate is evidence, not a pre-review dismissal:
 2. Include failed GitHub Actions step logs when available.
 3. Ask the specialists and orchestrator to reproduce and repair a bounded code cause.
 4. Never modify protected CI policy, weaken tests, or loosen types/lint to obtain green status.
-5. Require the complete configured validation command to pass before pushing a repair or posting a clean recommendation.
+5. If a reviewer-authored repair fails validation, feed the exact failure back into up to two focused correction cycles without repeating the full specialist review.
+6. Require a fresh verifier and the complete configured validation command to pass before pushing a repair or posting a clean recommendation.
 
 If the failure is external, transient, ambiguous, or unsafe to repair, the reviewer reports the precise blocker instead of guessing.
 

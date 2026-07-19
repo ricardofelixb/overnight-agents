@@ -53,6 +53,10 @@ Each specialist must provide concrete evidence, reject speculative findings, and
 
 If one finding is unsafe to resolve autonomously, leave that area unchanged. Retain independent safe repairs, verify them, and return `repaired_blocked` with the exact remaining decision or evidence required. Leave no working-tree changes and return `blocked` only when no independently safe repair is retained.
 
+## Controller correction cycles
+
+Full controller validation is authoritative. When it rejects an orchestrator repair, use its exact failure artifact to correct the existing working tree in place. This is a focused continuation, not a new repository review: do not rerun the three specialists, broaden scope, or discard a proven repair merely to obtain green status. Reproduce the failure, repair its cause, and require a fresh independent verifier before returning an updated complete result. The controller bounds correction cycles and remains the only component allowed to commit or push.
+
 ## Result discipline
 
 - `clean`: no actionable issue survived proof; no files changed; no blockers.

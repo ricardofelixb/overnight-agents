@@ -747,23 +747,48 @@ For provider evidence actually used, copy documentation URLs/timestamps and skil
 """
 
 
-def run_orchestrator(
+def correction_prompt(
+    *,
+    skill_path: Path,
+    pr: dict[str, Any],
+    changed_files_path: Path,
+    prior_result: Path,
+    validation_evidence: Path,
+) -> str:
+    return f"""Use the autonomous PR review skill at {skill_path / 'SKILL.md'}.
+
+Resume the existing review repair for this exact pull request. This is a bounded validation-correction cycle, not a new review.
+
+Immutable controller inputs:
+- PR: {pr['url']}
+- PR number: {pr['number']}
+- base SHA: {pr['baseRefOid']}
+- head SHA: {pr['headRefOid']}
+- exact original PR changed-files list: {changed_files_path}
+- previous contract-valid orchestrator result: {prior_result}
+- trusted controller validation failure evidence for the current working-tree repair: {validation_evidence}
+
+The working tree contains the exact uncommitted repair described by the previous result. Read the correction protocol in the skill and fix the validation failure at its cause. Do not restart the three specialist reviews and do not broaden the review.
+
+Preserve the proven repair unless the validation evidence disproves it. Never weaken tests, types, lint, validation, authorization, error handling, dependency policy, or CI configuration. Run the smallest focused reproduction and relevant checks after editing.
+
+After correcting the repair, spawn one fresh read-only verifier sub-agent with the raw original PR diff, current working-tree diff, and validation evidence. Reconcile any proven verifier finding yourself.
+
+Return a complete updated JSON result using the original result schema. It must describe the final working tree exactly and retain still-valid review evidence. If the proposed repair is unnecessary or unsafe, revert it completely and return `clean` only when the original PR has no actionable issue; otherwise return `blocked` with a precise reason. Never commit, push, comment, or change Git configuration or history.
+"""
+
+
+def run_codex_result(
     runner: Runner,
     config: dict[str, Any],
     workspace: Path,
     pr: dict[str, Any],
-    run_dir: Path,
-    changed_files_path: Path,
-    docs_manifest: Path,
-    skills_manifest: Path,
-    review_context: Path,
-    ci_context: Path,
-    validation_evidence: Path,
-    ai_files_manifest: Path | None,
+    output: Path,
+    prompt: str,
+    *,
     repairs_allowed: bool,
-) -> dict[str, Any]:
+) -> None:
     skill_path = Path(config["skill_path"])
-    output = run_dir / "orchestrator-result.json"
     schema = skill_path / "references" / "orchestrator-result.schema.json"
     sandbox = "workspace-write" if repairs_allowed else "read-only"
     command = [
@@ -800,18 +825,7 @@ def run_orchestrator(
             str(schema),
             "--output-last-message",
             str(output),
-            orchestrator_prompt(
-                skill_path=skill_path,
-                pr=pr,
-                changed_files_path=changed_files_path,
-                docs_manifest=docs_manifest,
-                skills_manifest=skills_manifest,
-                review_context=review_context,
-                ci_context=ci_context,
-                validation_evidence=validation_evidence,
-                ai_files_manifest=ai_files_manifest,
-                repairs_allowed=repairs_allowed,
-            ),
+            prompt,
         ]
     )
     git_config_before = (workspace / ".git" / "config").read_bytes()
@@ -820,6 +834,19 @@ def run_orchestrator(
         raise ReviewFailure("orchestrator changed local Git configuration")
     if runner.run(["git", "rev-parse", "HEAD"], cwd=workspace).stdout.strip() != pr["headRefOid"]:
         raise ReviewFailure("orchestrator changed commit history; only the controller may commit")
+
+
+def validate_orchestrator_result(
+    runner: Runner,
+    config: dict[str, Any],
+    workspace: Path,
+    pr: dict[str, Any],
+    output: Path,
+    changed_files_path: Path,
+    docs_manifest: Path,
+    skills_manifest: Path,
+) -> dict[str, Any]:
+    skill_path = Path(config["skill_path"])
     runner.run(
         [
             sys.executable,
@@ -846,6 +873,98 @@ def run_orchestrator(
     if actual:
         reject_policy_changes(sorted(actual), config.get("protected_policy_patterns", []))
     return result
+
+
+def run_orchestrator(
+    runner: Runner,
+    config: dict[str, Any],
+    workspace: Path,
+    pr: dict[str, Any],
+    run_dir: Path,
+    changed_files_path: Path,
+    docs_manifest: Path,
+    skills_manifest: Path,
+    review_context: Path,
+    ci_context: Path,
+    validation_evidence: Path,
+    ai_files_manifest: Path | None,
+    repairs_allowed: bool,
+) -> dict[str, Any]:
+    skill_path = Path(config["skill_path"])
+    output = run_dir / "orchestrator-result.json"
+    run_codex_result(
+        runner,
+        config,
+        workspace,
+        pr,
+        output,
+        orchestrator_prompt(
+            skill_path=skill_path,
+            pr=pr,
+            changed_files_path=changed_files_path,
+            docs_manifest=docs_manifest,
+            skills_manifest=skills_manifest,
+            review_context=review_context,
+            ci_context=ci_context,
+            validation_evidence=validation_evidence,
+            ai_files_manifest=ai_files_manifest,
+            repairs_allowed=repairs_allowed,
+        ),
+        repairs_allowed=repairs_allowed,
+    )
+    return validate_orchestrator_result(
+        runner,
+        config,
+        workspace,
+        pr,
+        output,
+        changed_files_path,
+        docs_manifest,
+        skills_manifest,
+    )
+
+
+def run_correction_orchestrator(
+    runner: Runner,
+    config: dict[str, Any],
+    workspace: Path,
+    pr: dict[str, Any],
+    run_dir: Path,
+    iteration: int,
+    changed_files_path: Path,
+    docs_manifest: Path,
+    skills_manifest: Path,
+    prior_result: Path,
+    validation_evidence: Path,
+) -> tuple[dict[str, Any], Path]:
+    skill_path = Path(config["skill_path"])
+    output = run_dir / f"orchestrator-result-correction-{iteration}.json"
+    run_codex_result(
+        runner,
+        config,
+        workspace,
+        pr,
+        output,
+        correction_prompt(
+            skill_path=skill_path,
+            pr=pr,
+            changed_files_path=changed_files_path,
+            prior_result=prior_result,
+            validation_evidence=validation_evidence,
+        ),
+        repairs_allowed=True,
+    )
+    result = validate_orchestrator_result(
+        runner,
+        config,
+        workspace,
+        pr,
+        output,
+        changed_files_path,
+        docs_manifest,
+        skills_manifest,
+    )
+    return result, output
 
 
 def workspace_changes(runner: Runner, workspace: Path) -> set[str]:
@@ -962,6 +1081,74 @@ def write_validation_evidence(
     path = run_dir / f"validation-evidence-{iteration}.json"
     path.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n")
     return path
+
+
+def validate_repair_with_corrections(
+    runner: Runner,
+    config: dict[str, Any],
+    workspace: Path,
+    pr: dict[str, Any],
+    run_dir: Path,
+    changed_files_path: Path,
+    docs_manifest: Path,
+    skills_manifest: Path,
+    setup_commands: list[list[str]],
+    validation_commands: list[list[str]],
+    success_markers: list[str],
+    validation_env: dict[str, str],
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    correction_cycles = int(config.get("validation_correction_cycles", 2))
+    result_path = run_dir / "orchestrator-result.json"
+    for iteration in range(correction_cycles + 1):
+        repair_fingerprint = workspace_fingerprint(runner, workspace)
+        setup_output = run_project_commands(runner, workspace, setup_commands, [], validation_env)
+        validation_output, passed, failure = collect_project_commands(
+            runner,
+            workspace,
+            validation_commands,
+            success_markers,
+            validation_env,
+            attempts=1,
+        )
+        if workspace_fingerprint(runner, workspace) != repair_fingerprint:
+            raise ReviewFailure("setup/validation changed the orchestrator repair")
+        evidence = write_validation_evidence(
+            run_dir,
+            iteration + 1,
+            pr,
+            setup_commands,
+            validation_commands,
+            success_markers,
+            validation_env,
+            setup_output,
+            validation_output,
+            "passed" if passed else "failed",
+            failure,
+        )
+        if passed:
+            return result
+        if iteration >= correction_cycles:
+            raise ReviewFailure(
+                f"post-repair validation still fails after {correction_cycles} correction cycle(s): {failure}"
+            )
+        runner.log(
+            f"Post-repair validation failed; starting focused correction cycle {iteration + 1}/{correction_cycles}"
+        )
+        result, result_path = run_correction_orchestrator(
+            runner,
+            config,
+            workspace,
+            pr,
+            run_dir,
+            iteration + 1,
+            changed_files_path,
+            docs_manifest,
+            skills_manifest,
+            result_path,
+            evidence,
+        )
+    raise AssertionError("unreachable validation correction loop")
 
 
 def commit_and_push_repair(runner: Runner, workspace: Path, pr: dict[str, Any]) -> str:
@@ -1285,26 +1472,33 @@ def execute(config_path: Path, project_name: str, pr_number: int, apply: bool, f
 
         original_head = pr["headRefOid"]
         final_head = original_head
+        validated_after_orchestrator = False
         if result["status"] in {"repaired", "repaired_blocked"}:
             if not repairs_allowed:
                 raise ReviewFailure("orchestrator repaired files without controller authorization")
-            repair_fingerprint = workspace_fingerprint(runner, workspace)
-            run_project_commands(runner, workspace, setup_commands, [], validation_env)
-            run_project_commands(
+            result = validate_repair_with_corrections(
                 runner,
+                config | project,
                 workspace,
+                pr,
+                run_dir,
+                changed_files_path,
+                docs_manifest,
+                skills_manifest,
+                setup_commands,
                 validation_commands,
                 success_markers,
                 validation_env,
-                validation_attempts,
+                result,
             )
-            if workspace_fingerprint(runner, workspace) != repair_fingerprint:
-                raise ReviewFailure("setup/validation changed the orchestrator repair")
+            validated_after_orchestrator = True
+
+        if result["status"] in {"repaired", "repaired_blocked"}:
             final_head = commit_and_push_repair(runner, workspace, pr)
             pr = fetch_pr_at_head(runner, repository, pr_number, final_head)
         elif result["status"] == "clean":
             assert_clean_workspace(runner, workspace, "clean orchestrator result")
-            if not validation_passed:
+            if not validation_passed and not validated_after_orchestrator:
                 run_project_commands(
                     runner,
                     workspace,

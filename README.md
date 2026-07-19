@@ -261,7 +261,7 @@ tailscale funnel --https 8443 off
 
 ## Logs and state
 
-- `code-simplifier/logs/` — simplifier runs and reviewer handoff history from older configurations
+- `code-simplifier/logs/` — simplifier run history
 - `pr-reviewer/logs/webhook.log` — receiver health and HTTP status lines; request bodies and signatures are never logged
 - `pr-reviewer/logs/webhook-worker.log` — queued review controller output
 - `pr-reviewer/logs/reconcile.log` — recovery sweep output

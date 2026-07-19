@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Recovery sweep for eligible open PRs missed by the direct handoff."""
+"""Recovery sweep for eligible open PRs missed by webhook delivery."""
 
 from __future__ import annotations
 

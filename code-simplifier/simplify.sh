@@ -181,39 +181,6 @@ else
   log "Returned to $DEFAULT_BRANCH"
 fi
 
-# --- Direct handoff to autonomous PR reviewer ---
-if [[ "$EXIT_CODE" -eq 0 && "${AUTO_REVIEW_PR:-false}" == "true" ]]; then
-  if [[ -n $(git status --porcelain 2>/dev/null) ]]; then
-    log "REVIEW BLOCKED: simplifier workspace is not clean"
-    EXIT_CODE=1
-  elif [[ ! -x "${PR_REVIEWER_SCRIPT:-}" || ! -f "${PR_REVIEWER_CONFIG:-}" ]]; then
-    log "REVIEW BLOCKED: reviewer script/config is unavailable"
-    EXIT_CODE=1
-  else
-    PR_NUMBER=$(gh pr view "$BRANCH_NAME" --json number --jq .number 2>> "$LOG_FILE" || true)
-    if [[ -z "$PR_NUMBER" ]]; then
-      log "REVIEW BLOCKED: no pull request found for $BRANCH_NAME"
-      EXIT_CODE=1
-    else
-      log "Starting autonomous review for PR #$PR_NUMBER"
-      set +e
-      "$PR_REVIEWER_SCRIPT" \
-        --config "$PR_REVIEWER_CONFIG" \
-        --project "${PR_REVIEWER_PROJECT:-$PROJECT_NAME}" \
-        --pr "$PR_NUMBER" \
-        --apply >> "$LOG_FILE" 2>&1
-      REVIEW_EXIT_CODE=$?
-      set -e
-      if [[ "$REVIEW_EXIT_CODE" -ne 0 ]]; then
-        log "Autonomous review blocked or failed with code $REVIEW_EXIT_CODE"
-        EXIT_CODE=$REVIEW_EXIT_CODE
-      else
-        log "Autonomous review completed for PR #$PR_NUMBER"
-      fi
-    fi
-  fi
-fi
-
 # --- Prune old logs (keep last 30) ---
 ls -1t "$LOG_DIR"/simplify_*.log 2>/dev/null | tail -n +31 | xargs rm -f 2>/dev/null || true
 

@@ -32,12 +32,6 @@ CHECKLIST_ROOT="$SIMPLIFIER_STATE_ROOT/checklists"
 # Branch prefix for simplification PRs
 BRANCH_PREFIX="code-simplify"
 
-# Optional direct handoff to the autonomous PR reviewer after a PR is created.
-AUTO_REVIEW_PR="false"
-PR_REVIEWER_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/pr-reviewer/review.py"
-PR_REVIEWER_CONFIG="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/pr-reviewer/config.json"
-# Set PR_REVIEWER_PROJECT when the reviewer project name differs from the source directory basename.
-
 # The prompt Claude receives — edit freely
 CLAUDE_PROMPT='You are running as an automated code simplification job. Your mission:
 

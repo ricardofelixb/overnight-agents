@@ -41,6 +41,22 @@ class PolicyTests(unittest.TestCase):
     def test_clean_pr_is_eligible(self) -> None:
         self.assertEqual(evaluate_pr_eligibility(self.pull_request(), self.project()), [])
 
+    def test_all_same_repository_human_branches_can_be_enabled(self) -> None:
+        project = self.project() | {
+            "allowed_head_patterns": ["*"],
+            "allowed_authors": [],
+            "excluded_authors": ["dependabot[bot]", "app/dependabot"],
+        }
+        pr = self.pull_request() | {
+            "headRefName": "feature/customer-import",
+            "author": {"login": "collaborator"},
+        }
+        self.assertEqual(evaluate_pr_eligibility(pr, project), [])
+        self.assertIn(
+            "pull request author is excluded",
+            evaluate_pr_eligibility(pr | {"author": {"login": "dependabot[bot]"}}, project),
+        )
+
     def test_unsafe_pr_dimensions_fail_closed(self) -> None:
         cases = {
             "draft": {"isDraft": True},

@@ -20,7 +20,12 @@ CHANGED = {"src/example.ts"}
 SPECIALISTS = [
     {"name": "behavior-contracts", "scope": "behavior", "verdict": "clean", "summary": "preserved"},
     {"name": "security-provider", "scope": "security", "verdict": "clean", "summary": "preserved"},
-    {"name": "hygiene-tests", "scope": "hygiene", "verdict": "clean", "summary": "preserved"},
+    {
+        "name": "simplification-hygiene",
+        "scope": "simplification and hygiene",
+        "verdict": "clean",
+        "summary": "preserved",
+    },
 ]
 
 
@@ -105,6 +110,21 @@ class ReviewContractTests(unittest.TestCase):
         for status in ("clean", "repaired", "blocked", "repaired_blocked"):
             with self.subTest(status=status):
                 self.assertEqual(self.validate(result(status)), [])
+
+    def test_clean_result_accepts_an_optional_passed_verifier(self) -> None:
+        value = result()
+        value["verification"] = {
+            "performed": True,
+            "verdict": "passed",
+            "summary": "fresh verifier found no remaining issue",
+        }
+        self.assertEqual(self.validate(value), [])
+
+        value["verification"]["verdict"] = "blocked"
+        self.assertIn(
+            "clean result verification must be either not needed or performed and passed",
+            self.validate(value),
+        )
 
     def test_all_specialists_are_required(self) -> None:
         value = result()

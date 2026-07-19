@@ -1,5 +1,6 @@
 .DS_Store
 .env
+!pr-reviewer/.env.example
 config.sh
 logs/
 .rotation_index

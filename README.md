@@ -29,11 +29,13 @@ The same private environment file can be configured for the PR reviewer through 
 
 ### pr-reviewer
 
-Reviews an exact pull-request base/head pair after the simplifier publishes it. One Codex orchestrator spawns three specialist sub-agents for behavior/contracts, security/provider boundaries, and hygiene/tests. It reconciles their evidence, reads SHA-bound PR comments and reviews as untrusted leads, consults allowlisted current provider documentation and promoted official skills, and directly repairs every proven bounded issue in the touched behavioral slice. Repairs may address introduced defects, pre-existing defects, valid PR follow-ups, security hardening, performance, or worthwhile code hygiene.
+Reviews every eligible human-authored pull request at an exact base/head pair. One Codex orchestrator spawns three specialist sub-agents for behavior/contracts, security/provider boundaries, and an independent simplification/hygiene pass. It reconciles their evidence, reads SHA-bound PR comments, reviews, and GitHub CI logs as untrusted leads, consults allowlisted current provider documentation and promoted official skills, and directly repairs every proven bounded issue in the touched behavioral slice. Repairs may address introduced defects, pre-existing defects, valid PR follow-ups, security hardening, performance, worthwhile code hygiene, or a reproducible validation-gate failure.
+
+GitHub webhooks are the primary trigger for PR open, reopen, ready-for-review, synchronize, human review-feedback, and failed check-suite events. The loopback-only receiver verifies `X-Hub-Signature-256`, durably deduplicates deliveries, and processes reviews sequentially outside the HTTP request. Dependabot is excluded. A 30-minute reconciliation sweep remains only as recovery for deliveries missed while the machine was offline.
 
 Provider routing uses progressive disclosure. The controller detects broad candidate domains and verifies a trusted catalog of fresh, hashed skills and official documentation, but Codex opens only the smallest skill topic and document required by a concrete code question. Candidate domains do not require provider evidence when repository code, types, tests, and project rules are sufficient. Fresh documentation caches are reused without another network request.
 
-The orchestrator may edit but cannot commit, push, comment on GitHub, approve, merge, or delete branches. After edits it uses a fresh verifier sub-agent. A deterministic controller owns the exact-SHA workspace, runs full validation before and after the orchestrator, checks the reported working-tree files, commits and pushes verified repairs, and maintains one idempotent PR comment explaining either “safe to merge,” “fixed and safe to merge,” or the exact blocking decision. The user remains the final merger.
+The orchestrator may edit but cannot commit, push, comment on GitHub, approve, merge, or delete branches. After edits it uses a fresh verifier sub-agent. A deterministic controller owns the exact-SHA workspace, captures the initial full-validation result as repair evidence, checks the reported working-tree files, requires the complete gate to pass before any repair push or clean recommendation, and maintains one idempotent PR comment explaining either “safe to merge,” “fixed and safe to merge,” or the exact blocking decision. The user remains the final merger.
 
 Reviewer workspaces are disposable controller-owned clones. First-run and interrupted `--no-checkout` clones are checked out before cleanliness is evaluated; contaminated or incomplete workspaces are moved to an auditable quarantine and replaced atomically. Successful or blocked results are cached by PR head and update timestamp so the recovery schedule does not repeat unchanged reviews.
 
@@ -84,7 +86,7 @@ Add `simplification.md` to `.gitignore`. Each run picks the next unchecked folde
    ./dead-code-sweeper/install-cron.sh
    ./code-simplifier/install_launchd.py
    ```
-7. Install the reviewer skill/provider bundle globally, then install its recovery and weekly provider-context refresh schedules:
+7. Install the reviewer skill/provider bundle globally, then install its webhook receiver, recovery sweep, and weekly provider-context refresh services:
    ```bash
    ./pr-reviewer/install.sh
    ./pr-reviewer/install-cron.sh
@@ -93,6 +95,15 @@ Add `simplification.md` to `.gitignore`. Each run picks the next unchecked folde
    ```bash
    ./pr-reviewer/install_launchd.py
    ```
+   Expose only the loopback receiver through a dedicated public Tailscale Funnel, then create the signed GitHub hook without printing its secret:
+   ```bash
+   tailscale funnel --bg --yes --https 8443 --set-path /github-webhook http://127.0.0.1:8765
+   ./pr-reviewer/configure_webhook.py \
+     --repository owner/repository \
+     --url https://your-host.example.ts.net:8443/github-webhook \
+     --env ./pr-reviewer/.env
+   ```
+   The hook subscribes to PR lifecycle, review-feedback, and `check_suite` events; new human feedback or a failed check forces a new exact-SHA repair review even when that PR head was reviewed previously.
    The weekly refresh uses isolated temporary clones. It promotes audited provider
    skills globally and runs `npx convex ai-files update` for each enabled Convex
    project, publishing a hashed guidance snapshot without modifying the configured
@@ -134,6 +145,8 @@ Projects rotate round-robin. Disabled projects are skipped.
 - Uses a dedicated clone and refuses dirty or overlapping review workspaces
 - Repairs only proven, bounded changes with unambiguous intended behavior, regardless of whether the defect is introduced or pre-existing
 - Fails closed on stale docs/skills, unsafe scope, stale SHAs, schema mismatch, or validation mutation
+- Never posts a clean result for a reproducible red validation gate; repairs must pass the full configured validation before being pushed
+- Verifies webhook HMAC signatures and keeps the secret only in an ignored mode-`0600` environment file
 
 ## Manual run
 

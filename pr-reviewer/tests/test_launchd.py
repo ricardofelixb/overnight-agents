@@ -17,6 +17,7 @@ class LaunchdTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             values = definitions(Path(temporary))
         recovery = values["com.overnight-agents.pr-reviewer"]
+        webhook = values["com.overnight-agents.pr-reviewer-webhook"]
         refresh = values["com.overnight-agents.pr-reviewer-skills"]
         self.assertEqual(recovery["StartInterval"], 1800)
         self.assertIn("--apply", recovery["ProgramArguments"])
@@ -25,6 +26,11 @@ class LaunchdTests(unittest.TestCase):
         self.assertIn("--config", refresh["ProgramArguments"])
         self.assertNotIn("--promote", refresh["ProgramArguments"])
         self.assertNotIn("RunAtLoad", recovery)
+        self.assertTrue(webhook["KeepAlive"])
+        self.assertTrue(webhook["RunAtLoad"])
+        self.assertIn("--apply", webhook["ProgramArguments"])
+        self.assertIn("--env", webhook["ProgramArguments"])
+        self.assertTrue(webhook["ProgramArguments"][1].endswith("webhook.py"))
 
 
 if __name__ == "__main__":

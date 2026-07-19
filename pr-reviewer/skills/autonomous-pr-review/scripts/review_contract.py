@@ -14,7 +14,7 @@ class ContractError(ValueError):
     pass
 
 
-SPECIALISTS = {"behavior-contracts", "security-provider", "hygiene-tests"}
+SPECIALISTS = {"behavior-contracts", "security-provider", "simplification-hygiene"}
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -92,7 +92,15 @@ def validate_result(
         require(not repairs, "clean result cannot contain repairs")
         require(not reported_changes, "clean result cannot contain changed files")
         require(not blockers, "clean result cannot contain blockers")
-        require(verification.get("verdict") == "not_needed", "clean result must mark verification not needed")
+        clean_verification = (
+            verification.get("performed") is False and verification.get("verdict") == "not_needed"
+        ) or (
+            verification.get("performed") is True and verification.get("verdict") == "passed"
+        )
+        require(
+            clean_verification,
+            "clean result verification must be either not needed or performed and passed",
+        )
     elif status == "repaired":
         require(bool(repairs), "repaired result requires repairs")
         require(bool(reported_changes), "repaired result requires changed files")

@@ -96,12 +96,13 @@ def validate_config(config: dict[str, Any], config_path: Path) -> list[str]:
             errors.append(f"{name}: environment_file must be a non-empty path")
         if not project.get("allowed_head_patterns"):
             errors.append(f"{name}: allowed_head_patterns cannot be empty")
-        elif any(pattern in {"*", "**"} for pattern in project["allowed_head_patterns"]):
-            errors.append(f"{name}: catch-all head patterns are forbidden")
-        if not project.get("allowed_authors"):
-            errors.append(f"{name}: allowed_authors cannot be empty")
-        elif "*" in project["allowed_authors"]:
+        if "*" in project.get("allowed_authors", []):
             errors.append(f"{name}: wildcard authors are forbidden")
+        excluded_authors = project.get("excluded_authors", [])
+        if not isinstance(excluded_authors, list) or not all(
+            isinstance(author, str) and author for author in excluded_authors
+        ):
+            errors.append(f"{name}: excluded_authors must be login strings")
         if not isinstance(project.get("base_branch"), str) or not project["base_branch"]:
             errors.append(f"{name}: base_branch is required")
         mode = merged.get("mode", "repair")
@@ -114,6 +115,7 @@ def validate_config(config: dict[str, Any], config_path: Path) -> list[str]:
             "max_changed_files": (1, 1000),
             "max_diff_bytes": (1000, 10_000_000),
             "max_review_context_bytes": (10_000, 5_000_000),
+            "max_ci_context_bytes": (10_000, 5_000_000),
             "max_document_bytes": (1000, 20_000_000),
             "docs_max_age_hours": (1, 168),
             "skill_max_age_days": (1, 31),
@@ -124,7 +126,15 @@ def validate_config(config: dict[str, Any], config_path: Path) -> list[str]:
             value = merged.get(field)
             if not isinstance(value, int) or not minimum <= value <= maximum:
                 errors.append(f"{name}: {field} must be between {minimum} and {maximum}")
-    for field in ("skill_path", "workspace_root", "state_root", "docs_catalog", "skills_lock", "telegram_env"):
+    for field in (
+        "skill_path",
+        "workspace_root",
+        "state_root",
+        "docs_catalog",
+        "skills_lock",
+        "telegram_env",
+        "webhook_env",
+    ):
         if not isinstance(config.get(field), str) or not config[field]:
             errors.append(f"missing {field}")
     return errors
@@ -141,7 +151,10 @@ def evaluate_pr_eligibility(pr: dict[str, Any], project: dict[str, Any]) -> list
     if not any(fnmatch.fnmatchcase(head, pattern) for pattern in project.get("allowed_head_patterns", [])):
         errors.append("head branch does not match an allowed pattern")
     author = (pr.get("author") or {}).get("login")
-    if author not in project.get("allowed_authors", []):
+    if author in project.get("excluded_authors", []):
+        errors.append("pull request author is excluded")
+    allowed_authors = project.get("allowed_authors", [])
+    if allowed_authors and author not in allowed_authors:
         errors.append("pull request author is not allowlisted")
     if pr.get("isCrossRepository") and not project.get("allow_forks", False):
         errors.append("cross-repository pull requests are not allowed")

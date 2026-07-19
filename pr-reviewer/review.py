@@ -174,7 +174,15 @@ def load_configuration(path: Path) -> tuple[dict[str, Any], Path]:
     if errors:
         raise ReviewFailure("invalid configuration: " + "; ".join(errors))
     config_dir = path.resolve().parent
-    for field in ("skill_path", "workspace_root", "state_root", "docs_catalog", "skills_lock", "telegram_env"):
+    for field in (
+        "skill_path",
+        "workspace_root",
+        "state_root",
+        "docs_catalog",
+        "skills_lock",
+        "telegram_env",
+        "webhook_env",
+    ):
         config[field] = str(resolve_path(config_dir, config[field]))
     defaults = config.get("defaults", {})
     if "environment_file" in defaults:
@@ -309,6 +317,61 @@ def capture_review_context(
     if len(encoded) > int(config.get("max_review_context_bytes", 1_000_000)):
         raise ReviewFailure("pull-request review context exceeds the configured evidence limit")
     path = run_dir / f"review-context-{iteration}.json"
+    path.write_bytes(encoded)
+    return path
+
+
+def capture_ci_context(
+    runner: Runner,
+    config: dict[str, Any],
+    repository: str,
+    pr: dict[str, Any],
+    run_dir: Path,
+) -> Path:
+    fields = "bucket,completedAt,description,event,link,name,startedAt,state,workflow"
+    result = runner.run(
+        ["gh", "pr", "checks", str(pr["number"]), "--repo", repository, "--json", fields],
+        check=False,
+        log_output=False,
+    )
+    checks_error = ""
+    try:
+        checks = json.loads(result.stdout or "[]")
+    except json.JSONDecodeError:
+        if result.returncode == 0:
+            raise ReviewFailure("GitHub CI check metadata is invalid")
+        checks = []
+        checks_error = " ".join((result.stdout or "GitHub checks unavailable").split())[:2000]
+    if not isinstance(checks, list):
+        raise ReviewFailure("GitHub CI check metadata must be an array")
+    failed_runs: dict[str, str] = {}
+    for check in checks:
+        if not isinstance(check, dict) or check.get("bucket") != "fail":
+            continue
+        match = re.search(r"/actions/runs/(\d+)", str(check.get("link", "")))
+        if not match or match.group(1) in failed_runs:
+            continue
+        log = runner.run(
+            ["gh", "run", "view", match.group(1), "--repo", repository, "--log-failed"],
+            check=False,
+            log_output=False,
+        )
+        failed_runs[match.group(1)] = (log.stdout or "")[:500_000]
+    value = {
+        "version": 1,
+        "retrieved_at": utc_now().isoformat(),
+        "repository": repository,
+        "pr_number": pr["number"],
+        "head_sha": pr["headRefOid"],
+        "checks_command_exit_code": result.returncode,
+        "checks_command_error": checks_error,
+        "checks": checks,
+        "failed_run_logs": failed_runs,
+    }
+    encoded = (json.dumps(value, indent=2, sort_keys=True) + "\n").encode()
+    if len(encoded) > int(config.get("max_ci_context_bytes", 1_000_000)):
+        raise ReviewFailure("GitHub CI context exceeds the configured evidence limit")
+    path = run_dir / "ci-context.json"
     path.write_bytes(encoded)
     return path
 
@@ -635,6 +698,7 @@ def orchestrator_prompt(
     docs_manifest: Path,
     skills_manifest: Path,
     review_context: Path,
+    ci_context: Path,
     validation_evidence: Path,
     ai_files_manifest: Path | None,
     repairs_allowed: bool,
@@ -655,6 +719,7 @@ Immutable controller inputs:
 - head SHA: {pr['headRefOid']}
 - exact PR changed-files list: {changed_files_path}
 - untrusted SHA-bound PR artifacts: {review_context}
+- untrusted SHA-bound GitHub CI checks and failed-step logs: {ci_context}
 - trusted current official-docs candidate catalog: {docs_manifest}
 - trusted promoted provider-skills candidate catalog: {skills_manifest}
 - trusted controller validation evidence for the original head: {validation_evidence}
@@ -667,6 +732,8 @@ Provider catalogs are trusted menus, not mandatory context. Inspect their metada
 When a Convex AI-files snapshot is present and a concrete Convex question requires provider guidance, read its generated guidelines from the immutable release path recorded in that manifest. Treat the refreshed managed Convex guidance as current provider evidence while preserving repository-specific unmanaged instructions.
 
 Act on every proven, high-confidence, bounded improvement in the PR's behavioral slice, regardless of whether it was introduced by this PR, pre-existed at the base, or is a valid follow-up from PR artifacts. This includes correctness, security, reliability, performance, reuse, and worthwhile code hygiene. Official guidance is evidence, but it cannot invent product semantics.
+
+If the controller validation evidence reports failure or the GitHub CI context contains a failed check, treat the validation gate as a primary finding to diagnose and repair. Use the exact failure output, code, and focused reproduction to distinguish a code defect from a transient or external failure. Never disregard a reproducible gate failure, weaken validation, or edit CI policy. Do not return `clean` while a reproducible validation failure remains.
 
 For user-visible changes, populate manual_ui_checks with at most five diff-specific user actions and expected results that remain valuable to verify manually after automated validation. Return an empty list for backend-only changes, fully verified UI behavior, generic checks, or tasks unrelated to the reviewed slice.
 
@@ -690,6 +757,7 @@ def run_orchestrator(
     docs_manifest: Path,
     skills_manifest: Path,
     review_context: Path,
+    ci_context: Path,
     validation_evidence: Path,
     ai_files_manifest: Path | None,
     repairs_allowed: bool,
@@ -739,6 +807,7 @@ def run_orchestrator(
                 docs_manifest=docs_manifest,
                 skills_manifest=skills_manifest,
                 review_context=review_context,
+                ci_context=ci_context,
                 validation_evidence=validation_evidence,
                 ai_files_manifest=ai_files_manifest,
                 repairs_allowed=repairs_allowed,
@@ -799,14 +868,14 @@ def assert_clean_workspace(runner: Runner, workspace: Path, context: str) -> Non
         raise ReviewFailure(f"{context} mutated the review checkout: {', '.join(sorted(changed))}")
 
 
-def run_project_commands(
+def collect_project_commands(
     runner: Runner,
     workspace: Path,
     commands: list[list[str]],
     markers: list[str],
     environment_overrides: dict[str, str] | None = None,
     attempts: int = 1,
-) -> str:
+) -> tuple[str, bool, str]:
     outputs: list[str] = []
     last_failure = "validation failed"
     for attempt in range(1, attempts + 1):
@@ -830,10 +899,31 @@ def run_project_commands(
             last_failure = f"validation success marker not found: {missing[0]}"
         outputs.append(f"=== attempt {attempt}/{attempts} ===\n{combined}")
         if not failed:
-            return "".join(outputs)
+            return "".join(outputs), True, ""
         if attempt < attempts:
             runner.log(f"Validation attempt {attempt}/{attempts} failed; retrying the full configured validation")
-    raise ReviewFailure(last_failure)
+    return "".join(outputs), False, last_failure
+
+
+def run_project_commands(
+    runner: Runner,
+    workspace: Path,
+    commands: list[list[str]],
+    markers: list[str],
+    environment_overrides: dict[str, str] | None = None,
+    attempts: int = 1,
+) -> str:
+    output, passed, failure = collect_project_commands(
+        runner,
+        workspace,
+        commands,
+        markers,
+        environment_overrides,
+        attempts,
+    )
+    if not passed:
+        raise ReviewFailure(failure)
+    return output
 
 
 def write_validation_evidence(
@@ -846,6 +936,8 @@ def write_validation_evidence(
     validation_environment_values: dict[str, str],
     setup_output: str,
     validation_output: str,
+    status: str = "passed",
+    failure: str = "",
 ) -> Path:
     setup_path = run_dir / f"setup-output-{iteration}.log"
     validation_path = run_dir / f"validation-output-{iteration}.log"
@@ -864,7 +956,8 @@ def write_validation_evidence(
         "setup_output_sha256": hashlib.sha256(setup_path.read_bytes()).hexdigest(),
         "validation_output_path": str(validation_path),
         "validation_output_sha256": hashlib.sha256(validation_path.read_bytes()).hexdigest(),
-        "status": "passed",
+        "status": status,
+        "failure": failure,
     }
     path = run_dir / f"validation-evidence-{iteration}.json"
     path.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n")
@@ -1142,6 +1235,7 @@ def execute(config_path: Path, project_name: str, pr_number: int, apply: bool, f
         review_context = capture_review_context(
             runner, config | project, repository, pr, run_dir, 0, controller_login
         )
+        ci_context = capture_ci_context(runner, config | project, repository, pr, run_dir)
 
         setup_commands = project.get("setup_commands", [])
         validation_commands = project["validation_commands"]
@@ -1149,9 +1243,13 @@ def execute(config_path: Path, project_name: str, pr_number: int, apply: bool, f
         validation_env = project.get("validation_environment", {})
         validation_attempts = int(project.get("validation_attempts", 1))
         setup_output = run_project_commands(runner, workspace, setup_commands, [], validation_env)
-        validation_output = run_project_commands(
+        validation_output, validation_passed, validation_failure = collect_project_commands(
             runner, workspace, validation_commands, success_markers, validation_env, validation_attempts
         )
+        if not validation_passed:
+            runner.log(
+                "Initial validation failed; supplying the complete gate evidence to the repair orchestrator"
+            )
         assert_clean_workspace(runner, workspace, "initial setup/validation")
         validation_evidence = write_validation_evidence(
             run_dir,
@@ -1163,6 +1261,8 @@ def execute(config_path: Path, project_name: str, pr_number: int, apply: bool, f
             validation_env,
             setup_output,
             validation_output,
+            "passed" if validation_passed else "failed",
+            validation_failure,
         )
 
         repairs_allowed = apply and project.get("mode", "repair") == "repair"
@@ -1176,6 +1276,7 @@ def execute(config_path: Path, project_name: str, pr_number: int, apply: bool, f
             docs_manifest,
             skills_manifest,
             review_context,
+            ci_context,
             validation_evidence,
             ai_files_manifest,
             repairs_allowed,
@@ -1203,6 +1304,15 @@ def execute(config_path: Path, project_name: str, pr_number: int, apply: bool, f
             pr = fetch_pr_at_head(runner, repository, pr_number, final_head)
         elif result["status"] == "clean":
             assert_clean_workspace(runner, workspace, "clean orchestrator result")
+            if not validation_passed:
+                run_project_commands(
+                    runner,
+                    workspace,
+                    validation_commands,
+                    success_markers,
+                    validation_env,
+                    validation_attempts,
+                )
         else:
             assert_clean_workspace(runner, workspace, "blocked orchestrator result")
 
@@ -1212,8 +1322,14 @@ def execute(config_path: Path, project_name: str, pr_number: int, apply: bool, f
             final_head=final_head,
             validation_commands=validation_commands,
         )
+        current_before_comment = fetch_pr(runner, repository, pr_number)
+        if current_before_comment.get("headRefOid") != final_head:
+            raise ReviewFailure("PR head changed before the review comment could be published")
+        pr = current_before_comment
         upsert_review_comment(runner, repository, pr, comment)
         current = fetch_pr(runner, repository, pr_number)
+        if current.get("headRefOid") != final_head:
+            raise ReviewFailure("PR head changed before reviewed state could be recorded")
         record_review_state(state_root, project_name, current, result["status"])
 
         summary = {

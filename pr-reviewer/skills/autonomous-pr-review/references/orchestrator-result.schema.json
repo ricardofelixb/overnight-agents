@@ -38,7 +38,7 @@
         "properties": {
           "name": {
             "type": "string",
-            "enum": ["behavior-contracts", "security-provider", "hygiene-tests"]
+            "enum": ["behavior-contracts", "security-provider", "simplification-hygiene"]
           },
           "scope": { "type": "string", "minLength": 1, "maxLength": 1000 },
           "verdict": { "type": "string", "enum": ["clean", "findings", "blocked"] },

@@ -4,13 +4,13 @@
 from __future__ import annotations
 
 import argparse
-import fnmatch
 import json
 import subprocess
 import sys
 from pathlib import Path
 
-from review import review_is_current
+from policy import evaluate_pr_eligibility
+from review import load_configuration, review_is_current
 from telegram_notify import NotificationFailure, flush_pending
 
 
@@ -23,8 +23,7 @@ def main() -> int:
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
-    config = json.loads(args.config.read_text())
-    config_dir = args.config.resolve().parent
+    config, config_dir = load_configuration(args.config)
     defaults = config.get("defaults", {})
     state_root = Path(config["state_root"]).expanduser()
     if not state_root.is_absolute():
@@ -44,6 +43,7 @@ def main() -> int:
     for project in config.get("projects", []):
         if not project.get("enabled", False):
             continue
+        policy = defaults | project
         listed = run(
             [
                 "gh",
@@ -56,7 +56,8 @@ def main() -> int:
                 "--base",
                 project["base_branch"],
                 "--json",
-                "number,headRefName,headRefOid,updatedAt,author,isDraft",
+                "number,state,baseRefName,baseRefOid,headRefName,headRefOid,headRepositoryOwner,"
+                "isCrossRepository,updatedAt,author,isDraft",
             ]
         )
         if listed.returncode != 0:
@@ -64,15 +65,7 @@ def main() -> int:
             failures += 1
             continue
         for pull_request in json.loads(listed.stdout):
-            author = (pull_request.get("author") or {}).get("login")
-            if pull_request.get("isDraft"):
-                continue
-            if author not in project.get("allowed_authors", []):
-                continue
-            if not any(
-                fnmatch.fnmatchcase(pull_request.get("headRefName", ""), pattern)
-                for pattern in project.get("allowed_head_patterns", [])
-            ):
+            if evaluate_pr_eligibility(pull_request, policy):
                 continue
             if review_is_current(state_root, project["name"], pull_request):
                 continue

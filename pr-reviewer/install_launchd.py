@@ -15,6 +15,7 @@ from typing import Any
 
 LABELS = {
     "com.overnight-agents.pr-reviewer": "reconcile.log",
+    "com.overnight-agents.pr-reviewer-webhook": "webhook.log",
     "com.overnight-agents.pr-reviewer-skills": "context-refresh.log",
 }
 
@@ -74,6 +75,28 @@ def definitions(script_dir: Path) -> dict[str, dict[str, Any]]:
         }
     )
 
+    webhook = plist_base(
+        "com.overnight-agents.pr-reviewer-webhook",
+        script_dir,
+        logs / LABELS["com.overnight-agents.pr-reviewer-webhook"],
+    )
+    webhook.update(
+        {
+            "ProgramArguments": [
+                python,
+                str(script_dir / "webhook.py"),
+                "--config",
+                str(script_dir / "config.json"),
+                "--env",
+                str(script_dir / ".env"),
+                "--apply",
+            ],
+            "KeepAlive": True,
+            "RunAtLoad": True,
+            "ThrottleInterval": 10,
+        }
+    )
+
     refresh = plist_base(
         "com.overnight-agents.pr-reviewer-skills",
         script_dir,
@@ -96,7 +119,11 @@ def definitions(script_dir: Path) -> dict[str, dict[str, Any]]:
             "StartCalendarInterval": {"Weekday": 0, "Hour": 3, "Minute": 15},
         }
     )
-    return {recovery["Label"]: recovery, refresh["Label"]: refresh}
+    return {
+        recovery["Label"]: recovery,
+        webhook["Label"]: webhook,
+        refresh["Label"]: refresh,
+    }
 
 
 def main() -> int:

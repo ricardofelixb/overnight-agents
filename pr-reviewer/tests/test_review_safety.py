@@ -18,7 +18,9 @@ from review import (
     ReviewFailure,
     Runner,
     capture_ai_files_snapshot,
+    capture_ci_context,
     capture_review_context,
+    collect_project_commands,
     fetch_pr_at_head,
     format_review_comment,
     legacy_head_was_reviewed,
@@ -146,6 +148,7 @@ class ReviewSafetyTests(unittest.TestCase):
             "docs_manifest": root / "docs.json",
             "skills_manifest": root / "skills.json",
             "review_context": root / "context.json",
+            "ci_context": root / "ci-context.json",
             "validation_evidence": root / "validation.json",
             "ai_files_manifest": root / "ai-files.json",
             "repairs_allowed": True,
@@ -153,6 +156,8 @@ class ReviewSafetyTests(unittest.TestCase):
         self.assertIn("Spawn the three named specialist sub-agents concurrently", prompt)
         self.assertIn("pre-existed at the base", prompt)
         self.assertIn(str(root / "context.json"), prompt)
+        self.assertIn(str(root / "ci-context.json"), prompt)
+        self.assertIn("validation gate as a primary finding", prompt)
         self.assertIn("repairs allowed: true", prompt)
         self.assertIn("trusted menus, not mandatory context", prompt)
         self.assertIn("Do not open every skill or document", prompt)
@@ -373,6 +378,24 @@ class ReviewSafetyTests(unittest.TestCase):
         self.assertIn("all passed", output)
         self.assertEqual(len(runner.messages), 1)
 
+    def test_failed_validation_is_retained_as_repair_evidence(self) -> None:
+        class FailingRunner:
+            def run(self, command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                return subprocess.CompletedProcess(command, 1, "type error at src/example.ts:7\n", "")
+
+            def log(self, message: str) -> None:
+                del message
+
+        output, passed, failure = collect_project_commands(
+            FailingRunner(),  # type: ignore[arg-type]
+            Path("/tmp"),
+            [["validate"]],
+            [],
+        )
+        self.assertFalse(passed)
+        self.assertIn("type error at src/example.ts:7", output)
+        self.assertEqual(failure, "command failed (1): validate")
+
     def test_pr_head_projection_is_polled_after_push(self) -> None:
         class ProjectionRunner:
             def __init__(self) -> None:
@@ -437,6 +460,52 @@ class ReviewSafetyTests(unittest.TestCase):
                 capture_review_context(
                     GraphqlRunner(), {"max_review_context_bytes": 10}, "trusted/example", pr, root, 1, "controller"
                 )
+
+    def test_ci_context_retains_failed_step_logs_and_tolerates_no_checks(self) -> None:
+        class CiRunner:
+            def __init__(self, checks: subprocess.CompletedProcess[str]) -> None:
+                self.checks = checks
+
+            def run(self, command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                if command[1:3] == ["pr", "checks"]:
+                    return self.checks
+                return subprocess.CompletedProcess(command, 0, "job\tstep\tType error\n", "")
+
+        pr = {"number": 7, "headRefOid": "b" * 40}
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            failed = subprocess.CompletedProcess(
+                ["gh"],
+                1,
+                json.dumps([{
+                    "bucket": "fail",
+                    "link": "https://github.com/trusted/example/actions/runs/123/job/456",
+                    "name": "validate",
+                }]),
+                "",
+            )
+            path = capture_ci_context(
+                CiRunner(failed),  # type: ignore[arg-type]
+                {"max_ci_context_bytes": 10000},
+                "trusted/example",
+                pr,
+                root,
+            )
+            context = json.loads(path.read_text())
+            self.assertEqual(context["head_sha"], "b" * 40)
+            self.assertIn("Type error", context["failed_run_logs"]["123"])
+
+            unavailable = subprocess.CompletedProcess(["gh"], 1, "no checks reported", "")
+            path = capture_ci_context(
+                CiRunner(unavailable),  # type: ignore[arg-type]
+                {"max_ci_context_bytes": 10000},
+                "trusted/example",
+                pr,
+                root,
+            )
+            context = json.loads(path.read_text())
+            self.assertEqual(context["checks"], [])
+            self.assertEqual(context["checks_command_error"], "no checks reported")
 
     def test_stale_skill_lock_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

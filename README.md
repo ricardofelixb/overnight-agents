@@ -1,12 +1,8 @@
 # Automations
 
-Autonomous code maintenance agents powered by Codex or Claude Code. They run on native schedulers, rotate through configured projects, and open narrowly scoped pull requests.
+Autonomous code-maintenance agents powered by Codex or Claude Code. Scheduled agents create narrowly scoped pull requests; the event-driven PR reviewer independently simplifies, reviews, repairs, validates, and summarizes every eligible human-authored PR.
 
 ## Automations
-
-### dead-code-sweeper
-
-Scans codebases for unused functions, imports, variables, files, and unreachable code paths. Opens PRs with removals when confident.
 
 ### code-simplifier
 
@@ -33,6 +29,17 @@ Reviews every eligible human-authored pull request at an exact base/head pair. O
 
 GitHub webhooks are the primary trigger for PR open, reopen, ready-for-review, synchronize, human review-feedback, and failed check-suite events. The loopback-only receiver verifies `X-Hub-Signature-256`, durably deduplicates deliveries, and processes reviews sequentially outside the HTTP request. Dependabot is excluded. A 30-minute reconciliation sweep remains only as recovery for deliveries missed while the machine was offline.
 
+```text
+GitHub event
+  -> signed loopback webhook receiver
+  -> durable, delivery-ID-deduplicated queue
+  -> exact-SHA PR controller
+  -> behavior/contracts + security/provider + simplification/hygiene
+  -> fresh verifier
+  -> full validation gate
+  -> verified repair commit or idempotent PR summary
+```
+
 Provider routing uses progressive disclosure. The controller detects broad candidate domains and verifies a trusted catalog of fresh, hashed skills and official documentation, but Codex opens only the smallest skill topic and document required by a concrete code question. Candidate domains do not require provider evidence when repository code, types, tests, and project rules are sufficient. Fresh documentation caches are reused without another network request.
 
 The orchestrator may edit but cannot commit, push, comment on GitHub, approve, merge, or delete branches. After edits it uses a fresh verifier sub-agent. A deterministic controller owns the exact-SHA workspace, captures the initial full-validation result as repair evidence, checks the reported working-tree files, requires the complete gate to pass before any repair push or clean recommendation, and maintains one idempotent PR comment explaining either “safe to merge,” “fixed and safe to merge,” or the exact blocking decision. The user remains the final merger.
@@ -41,7 +48,7 @@ Reviewer workspaces are disposable controller-owned clones. First-run and interr
 
 Projects may define non-secret validation resource settings such as `NODE_OPTIONS` in `validation_environment`. Credential-like and critical shell variables are rejected, and repository commands never inherit arbitrary automation secrets.
 
-The reviewer defaults to `repair`. `observe` remains available for a read-only dry run, while the local exac deployment uses `repair`: verified changes are pushed to the PR branch and manual merge remains in GitHub.
+The reviewer defaults to `repair`. `observe` remains available for a read-only dry run, while the local exac deployment uses `repair`: verified changes are pushed to the PR branch and manual merge remains in GitHub. The scheduled simplifier does not invoke the reviewer directly; publishing its PR produces the same webhook event as a human PR, avoiding duplicate expensive reviews.
 
 A semantic blocker sends one deduplicated outbound Telegram notification with the decision needed. Delivery uses no webhook or inbound listener. Failed sends remain in a durable outbox and are retried by the recovery schedule; notification failure never changes the PR review result.
 
@@ -63,60 +70,83 @@ Add `simplification.md` to `.gitignore`. Each run picks the next unchecked folde
 
 ## Setup
 
-1. Clone this repo
-2. Copy the example files in each automation you want to use:
-   ```
-   cp .env.example dead-code-sweeper/.env
-   cp dead-code-sweeper/config.example.sh dead-code-sweeper/config.sh
+1. Clone this repository.
+2. Copy the example files for the automations you want to enable:
 
+   ```bash
    cp .env.example code-simplifier/.env
    cp code-simplifier/config.example.sh code-simplifier/config.sh
    cp pr-reviewer/config.example.json pr-reviewer/config.json
    cp pr-reviewer/.env.example pr-reviewer/.env
    ```
-3. Fill in your tokens in `.env`
-4. Edit each `config.sh` — set your project paths, branches, and schedule
-5. For code-simplifier:
+
+3. Set private environment files to owner-only access:
+
+   ```bash
+   chmod 600 pr-reviewer/.env
+   chmod 600 code-simplifier/state/env/*.env.local
+   ```
+
+   Do not manually invent a webhook secret. `configure_webhook.py` creates and persists one without printing it.
+
+4. Edit the local ignored configuration files with project paths, repositories, base branches, and validation commands.
+5. For `code-simplifier`:
+
    - Put the project environment at `code-simplifier/state/env/<project>.env.local` and run `chmod 600` on it.
    - If `simplification.md` is ignored, store its canonical copy at `code-simplifier/state/checklists/<project>.md` and symlink the project checkout's `simplification.md` to it.
    - If `simplification.md` is tracked, keep using the tracked repository file.
    - Configure the reviewer project's `environment_file` to point at the same private environment file.
-6. Install the schedules. On macOS, use launchd for the code simplifier:
-   ```
-   ./dead-code-sweeper/install-cron.sh
+
+6. Install the scheduled simplifier with launchd on macOS:
+
+   ```bash
    ./code-simplifier/install_launchd.py
    ```
-7. Install the reviewer skill/provider bundle globally, then install its webhook receiver, recovery sweep, and weekly provider-context refresh services:
+
+7. Install the reviewer skill and promoted provider bundle globally:
+
    ```bash
    ./pr-reviewer/install.sh
-   ./pr-reviewer/install-cron.sh
    ```
-   On macOS, use the native custom scheduler if `crontab` is unavailable:
+
+8. On macOS, install the launchd services for the persistent webhook receiver, recovery sweep, and weekly provider-context refresh:
+
    ```bash
    ./pr-reviewer/install_launchd.py
    ```
-   Expose only the loopback receiver through a dedicated public Tailscale Funnel, then create the signed GitHub hook without printing its secret:
+
+   `install-cron.sh` remains available for the recovery and refresh schedules on systems using cron; it does not supervise the persistent HTTP receiver.
+
+9. Expose only the loopback receiver through a dedicated public Tailscale Funnel:
+
    ```bash
    tailscale funnel --bg --yes --https 8443 --set-path /github-webhook http://127.0.0.1:8765
+   ```
+
+10. Create or update the signed GitHub repository hook through `gh` without exposing its secret:
+
+   ```bash
    ./pr-reviewer/configure_webhook.py \
      --repository owner/repository \
      --url https://your-host.example.ts.net:8443/github-webhook \
      --env ./pr-reviewer/.env
    ```
-   The hook subscribes to PR lifecycle, review-feedback, and `check_suite` events; new human feedback or a failed check forces a new exact-SHA repair review even when that PR head was reviewed previously.
-   The weekly refresh uses isolated temporary clones. It promotes audited provider
-   skills globally and runs `npx convex ai-files update` for each enabled Convex
-   project, publishing a hashed guidance snapshot without modifying the configured
-   source checkout.
+
+   The hook subscribes to `pull_request`, `pull_request_review`, `pull_request_review_comment`, and `check_suite`. Human feedback or a failed check forces a new exact-SHA repair review even when that head was reviewed previously.
+
+The weekly refresh uses isolated temporary clones. It promotes audited provider skills globally and runs `npx convex ai-files update` for each enabled Convex project, publishing a hashed guidance snapshot without modifying the configured source checkout.
 
 ## Requirements
 
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)
 - [GitHub CLI](https://cli.github.com/) (`gh`)
 - [Codex CLI](https://developers.openai.com/codex/cli/) (`codex`)
-- macOS/Linux with cron
+- [Tailscale](https://tailscale.com/) with Funnel enabled for inbound GitHub webhooks
+- macOS with launchd for the persistent webhook receiver; cron remains supported for scheduled recovery/refresh jobs
 
 ## Configuration
+
+### Scheduled agents
 
 Each automation has a `config.sh` with:
 
@@ -132,6 +162,39 @@ PROJECTS=(
 ```
 
 Projects rotate round-robin. Disabled projects are skipped.
+
+### PR reviewer
+
+`pr-reviewer/config.json` is local and ignored. Each enabled project defines its repository, source checkout, base branch, environment file, and exact validation commands. To review every same-repository human branch while excluding Dependabot:
+
+```json
+{
+  "name": "example",
+  "enabled": true,
+  "source_path": "/absolute/path/to/project",
+  "repository": "owner/repository",
+  "base_branch": "main",
+  "allowed_head_patterns": ["*"],
+  "excluded_authors": ["dependabot[bot]", "app/dependabot"],
+  "allow_forks": false,
+  "validation_commands": [["pnpm", "run", "validate:github"]],
+  "mode": "repair"
+}
+```
+
+Draft PRs wait for `ready_for_review`. Cross-repository PRs remain blocked unless explicitly enabled, because a repair push must never target an untrusted fork. Provider skills and documentation are selected on demand from signed/fresh manifests rather than loaded eagerly.
+
+### Validation self-healing
+
+The initial validation gate is evidence, not a pre-review dismissal:
+
+1. Capture local validation output and current GitHub check metadata at the immutable PR head.
+2. Include failed GitHub Actions step logs when available.
+3. Ask the specialists and orchestrator to reproduce and repair a bounded code cause.
+4. Never modify protected CI policy, weaken tests, or loosen types/lint to obtain green status.
+5. Require the complete configured validation command to pass before pushing a repair or posting a clean recommendation.
+
+If the failure is external, transient, ambiguous, or unsafe to repair, the reviewer reports the precise blocker instead of guessing.
 
 ## Safety
 
@@ -151,10 +214,60 @@ Projects rotate round-robin. Disabled projects are skipped.
 ## Manual run
 
 ```bash
-./dead-code-sweeper/sweep.sh
 ./code-simplifier/simplify.sh
+
+# Review one exact PR with verified repairs enabled.
+./pr-reviewer/review.py \
+  --config ./pr-reviewer/config.json \
+  --project example \
+  --pr 123 \
+  --apply
+
+# Run the missed-delivery recovery sweep.
+./pr-reviewer/reconcile.py --config ./pr-reviewer/config.json --apply
 ```
 
-## Logs
+Do not use `--force` for ordinary retries. It intentionally bypasses the reviewed-head cache and is reserved for new review feedback or a failed check on the same SHA.
 
-Each automation writes timestamped logs to its `logs/` directory.
+## Operations
+
+Verify the local receiver, public Funnel, and launchd process:
+
+```bash
+curl --fail http://127.0.0.1:8765/healthz
+curl --fail https://your-host.example.ts.net:8443/github-webhook/healthz
+tailscale funnel status
+launchctl print gui/$(id -u)/com.overnight-agents.pr-reviewer-webhook
+```
+
+Inspect webhook metadata without retrieving its secret:
+
+```bash
+gh api repos/owner/repository/hooks \
+  --jq '.[] | {id,active,events,url:.config.url,last_response}'
+```
+
+Uninstall the reviewer launchd jobs with:
+
+```bash
+./pr-reviewer/install_launchd.py --uninstall
+```
+
+Disable the dedicated Funnel separately:
+
+```bash
+tailscale funnel --https 8443 off
+```
+
+## Logs and state
+
+- `code-simplifier/logs/` — simplifier runs and reviewer handoff history from older configurations
+- `pr-reviewer/logs/webhook.log` — receiver health and HTTP status lines; request bodies and signatures are never logged
+- `pr-reviewer/logs/webhook-worker.log` — queued review controller output
+- `pr-reviewer/logs/reconcile.log` — recovery sweep output
+- `pr-reviewer/logs/context-refresh.log` — weekly provider-skill, documentation, and Convex AI-files refresh
+- `pr-reviewer/state/webhook-queue/` — pending and in-progress signed deliveries
+- `pr-reviewer/state/webhook-deliveries/` — bounded delivery receipts used for deduplication
+- `pr-reviewer/state/runs/<project>/<pr>/` — immutable inputs, validation evidence, orchestrator result, and summary for each run
+
+All runtime state, logs, local configuration, and secret-bearing environment files are ignored by Git.

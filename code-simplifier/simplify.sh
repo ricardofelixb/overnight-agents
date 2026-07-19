@@ -1,10 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Ensure PATH includes Homebrew (cron runs with minimal PATH)
+# Ensure PATH includes Homebrew (schedulers run with a minimal PATH)
 export PATH="/Users/ricardo/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:$PATH"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Prevent launchd, legacy cron, or a manual trigger from overlapping. lockf
+# releases the kernel lock automatically even if the child exits unexpectedly.
+if [[ "${SIMPLIFIER_LOCK_HELD:-false}" != "true" ]]; then
+  mkdir -p "$SCRIPT_DIR/state"
+  set +e
+  /usr/bin/lockf -s -t 0 -k "$SCRIPT_DIR/state/simplify.lock" \
+    /usr/bin/env SIMPLIFIER_LOCK_HELD=true "$SCRIPT_DIR/simplify.sh" "$@"
+  LOCK_EXIT_CODE=$?
+  set -e
+  if [[ "$LOCK_EXIT_CODE" -eq 75 ]]; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] SKIPPED: simplifier already running"
+    exit 0
+  fi
+  exit "$LOCK_EXIT_CODE"
+fi
+
 if [[ -f "$SCRIPT_DIR/.env" ]]; then
   source "$SCRIPT_DIR/.env"
 fi

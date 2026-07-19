@@ -1,6 +1,6 @@
 # Automations
 
-Autonomous code maintenance agents powered by Codex or Claude Code. They run on cron, rotate through configured projects, and open narrowly scoped pull requests.
+Autonomous code maintenance agents powered by Codex or Claude Code. They run on native schedulers, rotate through configured projects, and open narrowly scoped pull requests.
 
 ## Automations
 
@@ -79,10 +79,10 @@ Add `simplification.md` to `.gitignore`. Each run picks the next unchecked folde
    - If `simplification.md` is ignored, store its canonical copy at `code-simplifier/state/checklists/<project>.md` and symlink the project checkout's `simplification.md` to it.
    - If `simplification.md` is tracked, keep using the tracked repository file.
    - Configure the reviewer project's `environment_file` to point at the same private environment file.
-6. Install the cron jobs:
+6. Install the schedules. On macOS, use launchd for the code simplifier:
    ```
    ./dead-code-sweeper/install-cron.sh
-   ./code-simplifier/install-cron.sh
+   ./code-simplifier/install_launchd.py
    ```
 7. Install the reviewer skill/provider bundle globally, then install its recovery and weekly provider-context refresh schedules:
    ```bash
@@ -110,7 +110,7 @@ Add `simplification.md` to `.gitignore`. Each run picks the next unchecked folde
 Each automation has a `config.sh` with:
 
 - **`ENABLED`** — global toggle (`true`/`false`)
-- **`SCHEDULE`** — cron expression
+- **`SCHEDULE`** — daily minute/hour cron expression, translated to launchd on macOS
 - **`PROJECTS`** — array of `path:default_branch:enabled` entries
 
 ```bash

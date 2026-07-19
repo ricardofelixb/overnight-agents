@@ -26,7 +26,7 @@ SPECIALISTS = [
 
 def result(status: str = "clean") -> dict:
     value = {
-        "schema_version": 1,
+        "schema_version": 2,
         "status": status,
         "reviewed_base_sha": SHA_A,
         "reviewed_head_sha": SHA_B,
@@ -38,6 +38,7 @@ def result(status: str = "clean") -> dict:
         "tests_changed": [],
         "verification": {"performed": False, "verdict": "not_needed", "summary": "no edits"},
         "documentation": [],
+        "manual_ui_checks": [],
         "remaining_observations": [],
         "blocking_reasons": [],
     }
@@ -109,6 +110,20 @@ class ReviewContractTests(unittest.TestCase):
         value = result()
         value["specialists"] = value["specialists"][:2]
         self.assertIn("all required specialist sub-agents must report", self.validate(value))
+
+    def test_manual_ui_checks_are_bounded_and_unique(self) -> None:
+        value = result()
+        value["manual_ui_checks"] = [
+            "Create an expense and confirm it appears in the table.",
+            "Open the expense and confirm its supplier is displayed.",
+        ]
+        self.assertEqual(self.validate(value), [])
+        value["manual_ui_checks"] = ["Repeat this check"] * 6
+        errors = self.validate(value)
+        self.assertIn("manual_ui_checks cannot exceed five items", errors)
+        self.assertIn("manual_ui_checks must contain unique strings", errors)
+        del value["manual_ui_checks"]
+        self.assertIn("manual_ui_checks must be reported explicitly", self.validate(value))
 
     def test_reviewed_files_may_include_context_but_must_cover_the_diff(self) -> None:
         value = result()

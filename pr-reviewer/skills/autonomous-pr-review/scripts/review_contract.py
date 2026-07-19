@@ -51,7 +51,7 @@ def validate_result(
         if not condition:
             errors.append(message)
 
-    require(result.get("schema_version") == 1, "schema_version must equal 1")
+    require(result.get("schema_version") == 2, "schema_version must equal 2")
     require(result.get("reviewed_base_sha") == expected_base, "base SHA mismatch")
     require(result.get("reviewed_head_sha") == expected_head, "head SHA mismatch")
 
@@ -69,6 +69,20 @@ def validate_result(
     names = [item.get("name") for item in specialists if isinstance(item, dict)]
     require(len(names) == len(set(names)), "specialist names must be unique")
     require(set(names) == SPECIALISTS, "all required specialist sub-agents must report")
+
+    manual_ui_checks = result.get("manual_ui_checks", [])
+    require("manual_ui_checks" in result, "manual_ui_checks must be reported explicitly")
+    require(isinstance(manual_ui_checks, list), "manual_ui_checks must be an array")
+    if isinstance(manual_ui_checks, list):
+        require(len(manual_ui_checks) <= 5, "manual_ui_checks cannot exceed five items")
+        require(
+            len(manual_ui_checks) == len(set(item for item in manual_ui_checks if isinstance(item, str))),
+            "manual_ui_checks must contain unique strings",
+        )
+        require(
+            all(isinstance(item, str) and 0 < len(item) <= 300 for item in manual_ui_checks),
+            "manual_ui_checks entries must be non-empty strings of at most 300 characters",
+        )
 
     status = result.get("status")
     repairs = result.get("repairs", [])

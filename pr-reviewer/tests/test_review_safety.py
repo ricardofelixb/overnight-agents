@@ -204,6 +204,7 @@ class ReviewSafetyTests(unittest.TestCase):
             "status": "clean",
             "repairs": [],
             "verification": {"performed": False},
+            "manual_ui_checks": [],
             "remaining_observations": [],
             "blocking_reasons": [],
         }
@@ -246,6 +247,28 @@ class ReviewSafetyTests(unittest.TestCase):
         self.assertIn("improved, decision still required", repaired_blocked_comment)
         self.assertIn("product decision required", repaired_blocked_comment)
         self.assertIn("pnpm run validate", repaired_blocked_comment)
+
+    def test_comment_includes_only_supplied_manual_ui_checks(self) -> None:
+        result = {
+            "status": "clean",
+            "repairs": [],
+            "verification": {"performed": False},
+            "manual_ui_checks": [
+                "Create an expense and confirm the new row shows the selected supplier.",
+                "Search expense categories and confirm pagination preserves the query.",
+            ],
+            "remaining_observations": [],
+            "blocking_reasons": [],
+        }
+        comment = format_review_comment(
+            result,
+            original_head="a" * 40,
+            final_head="a" * 40,
+            validation_commands=[["pnpm", "run", "validate"]],
+        )
+        self.assertIn("### Manual UI sanity checks", comment)
+        self.assertIn("- [ ] Create an expense", comment)
+        self.assertIn("- [ ] Search expense categories", comment)
 
     def test_review_state_skips_only_identical_head_and_pr_context(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -2,10 +2,10 @@
 # ============================================================
 # Code Simplifier — Configuration
 # Edit this file to adjust projects, prompt, and behavior.
-# After changing SCHEDULE, run: ./install-cron.sh
+# After changing SCHEDULE on macOS, run: ./install_launchd.py
 # ============================================================
 
-# Toggle: set to "false" to disable (cron still fires but exits immediately)
+# Toggle: set to "false" to disable (the scheduler still fires but exits immediately)
 ENABLED="true"
 
 # Cron schedule (default: daily at 4:17am)

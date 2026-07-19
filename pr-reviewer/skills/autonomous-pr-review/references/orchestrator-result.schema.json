@@ -16,11 +16,12 @@
     "tests_changed",
     "verification",
     "documentation",
+    "manual_ui_checks",
     "remaining_observations",
     "blocking_reasons"
   ],
   "properties": {
-    "schema_version": { "type": "integer", "const": 1 },
+    "schema_version": { "type": "integer", "const": 2 },
     "status": { "type": "string", "enum": ["clean", "repaired", "blocked", "repaired_blocked"] },
     "reviewed_base_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
     "reviewed_head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
@@ -111,6 +112,11 @@
           "compatibility": { "type": "string", "minLength": 1 }
         }
       }
+    },
+    "manual_ui_checks": {
+      "type": "array",
+      "maxItems": 5,
+      "items": { "type": "string", "minLength": 1, "maxLength": 300 }
     },
     "remaining_observations": {
       "type": "array",

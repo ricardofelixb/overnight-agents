@@ -60,3 +60,13 @@ If one finding is unsafe to resolve autonomously, leave that area unchanged. Ret
 `reviewed_files` records the complete inspected repository surface. It must contain every supplied PR changed file and may also contain the callers, consumers, tests, rules, and boundaries inspected to prove the result.
 
 Record provider documentation only when actually read and used as evidence. A detected provider candidate does not require a documentation record when repository code, tests, types, and project rules are sufficient. Copy provider IDs, URLs, retrieval timestamps, skill names, and skill revisions exactly from controller manifests.
+
+## Manual UI sanity checks
+
+Populate `manual_ui_checks` only for user-visible behavior that automated validation or supplied browser evidence did not fully exercise. Return at most five checks. Each check must:
+
+- describe a concrete user action in the changed behavioral slice
+- state the expected observable result
+- target residual interaction, authentication, authorization, responsive, or browser-state risk
+
+Do not repeat automated tests, request generic regression testing, invent unrelated product flows, or use placeholders such as “test the page.” Return an empty list when the PR is backend-only or the affected UI behavior is already fully verified.

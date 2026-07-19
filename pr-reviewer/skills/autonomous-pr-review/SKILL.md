@@ -25,6 +25,7 @@ Project `AGENTS.md` and explicitly supplied controller policy outrank this skill
 5. Repair every high-confidence, bounded issue in the reviewed behavioral slice when intended behavior is unambiguous. This includes introduced defects, provable pre-existing defects, valid PR follow-ups, security hardening, and worthwhile hygiene improvements.
 6. Do not edit for preference, speculative cleanup, broad redesign, dependency upgrades, migrations, external configuration, or ambiguous product behavior. Do not let one ambiguous issue suppress independent safe repairs: repair and verify everything independently provable, leave the ambiguous area unchanged, and return `repaired_blocked`. Return `blocked` only when no safe repair is retained.
 7. After editing, run focused checks and spawn one fresh verifier sub-agent with the raw base/head diff and final working-tree diff, without giving it prior conclusions. Address any proven verifier finding, then return the final structured result.
+8. For user-visible changes, return 1–5 concrete manual UI sanity checks only when automated evidence did not fully exercise the affected interaction. Each check must name a user action and its expected observable result. Do not add generic, speculative, or automated-test-duplicate tasks; return an empty list for non-UI changes or fully verified interactions.
 
 Never commit, push, comment on GitHub, approve, merge, delete a branch, change Git configuration, or expose credentials. The deterministic controller owns those actions and runs full validation after edits.
 

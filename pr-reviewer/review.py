@@ -668,6 +668,8 @@ When a Convex AI-files snapshot is present and a concrete Convex question requir
 
 Act on every proven, high-confidence, bounded improvement in the PR's behavioral slice, regardless of whether it was introduced by this PR, pre-existed at the base, or is a valid follow-up from PR artifacts. This includes correctness, security, reliability, performance, reuse, and worthwhile code hygiene. Official guidance is evidence, but it cannot invent product semantics.
 
+For user-visible changes, populate manual_ui_checks with at most five diff-specific user actions and expected results that remain valuable to verify manually after automated validation. Return an empty list for backend-only changes, fully verified UI behavior, generic checks, or tasks unrelated to the reviewed slice.
+
 Do not let an ambiguous issue suppress independent safe improvements. If both exist, leave the ambiguous area untouched, retain and verify the independent repairs, and return repaired_blocked. In reviewed_files, include every PR changed file plus every contextual repository file actually inspected.
 
 If repairs are allowed, edit the working tree directly. Do not commit or push. After edits, spawn a fresh verifier sub-agent that receives raw diffs and evidence rather than your conclusions. If repairs are not allowed, do not edit and return blocked when an actionable repair exists.
@@ -935,6 +937,11 @@ def format_review_comment(
     if observations:
         lines.extend(["", "### Notes"])
         lines.extend(f"- {item}" for item in observations)
+
+    manual_ui_checks = [_comment_text(item, 300) for item in result.get("manual_ui_checks", []) if item]
+    if manual_ui_checks:
+        lines.extend(["", "### Manual UI sanity checks"])
+        lines.extend(f"- [ ] {item}" for item in manual_ui_checks[:5])
 
     blockers = [_comment_text(item, 500) for item in result.get("blocking_reasons", []) if item]
     if blockers:
@@ -1214,6 +1221,7 @@ def execute(config_path: Path, project_name: str, pr_number: int, apply: bool, f
             "reviewed_head_sha": original_head,
             "final_head_sha": final_head,
             "repairs": result.get("repairs", []),
+            "manual_ui_checks": result.get("manual_ui_checks", []),
             "blocking_reasons": result.get("blocking_reasons", []),
             "url": pr["url"],
             "manual_merge": True,

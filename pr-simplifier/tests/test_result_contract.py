@@ -103,6 +103,13 @@ class ResultContractTests(unittest.TestCase):
         value["specialists"][0]["accepted_improvement_ids"] = []
         self.assertIn("specialist accepted IDs must exactly match improvements", self.validate(value))
 
+    def test_specialist_accepted_ids_remain_unique_without_schema_keyword(self) -> None:
+        value = result("simplified")
+        value["specialists"][0]["accepted_improvement_ids"] = ["reuse-helper", "reuse-helper"]
+        self.assertTrue(
+            any("accepted_improvement_ids must be unique" in error for error in self.validate(value))
+        )
+
     def test_clean_and_blocked_cannot_hide_edits(self) -> None:
         for status in ("clean", "blocked"):
             value = result(status)

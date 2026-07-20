@@ -81,6 +81,14 @@ def validate_result(
     names = [item.get("name") for item in specialists if isinstance(item, dict)]
     require(len(names) == len(set(names)), "specialist names must be unique")
     require(set(names) == SPECIALISTS, "all required specialist sub-agents must report")
+    for index, specialist in enumerate(specialists):
+        if not isinstance(specialist, dict):
+            continue
+        accepted = specialist.get("accepted_improvement_ids", [])
+        require(
+            isinstance(accepted, list) and len(accepted) == len(set(accepted)),
+            f"specialists[{index}].accepted_improvement_ids must be unique",
+        )
 
     improvements = result.get("improvements")
     if not isinstance(improvements, list):

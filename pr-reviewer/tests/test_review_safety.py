@@ -18,7 +18,6 @@ from review import (
     ReviewFailure,
     ResultContractFailure,
     Runner,
-    bind_validation_evidence_to_checkpoint,
     capture_ai_files_snapshot,
     capture_ci_context,
     capture_review_context,
@@ -42,14 +41,13 @@ from review import (
     run_orchestrator,
     run_project_commands,
     run_simplification_phase,
-    simplification_correction_prompt,
     simplification_is_skipped,
     simplification_prompt,
     tree_hash,
     upsert_review_comment,
     validate_docs_manifest,
     validate_orchestrator_result,
-    validate_repair_with_corrections,
+    validate_final_result_with_corrections,
     validate_skill_lock,
     workspace_fingerprint,
     write_validation_evidence,
@@ -222,7 +220,7 @@ class ReviewSafetyTests(unittest.TestCase):
             prior_result=root / "result.json",
             validation_evidence=root / "validation.json",
         )
-        self.assertIn("bounded validation-correction cycle, not a new review", prompt)
+        self.assertIn("bounded final-validation correction cycle, not a new review", prompt)
         self.assertIn("Do not restart the three specialist reviews", prompt)
         self.assertIn(str(root / "result.json"), prompt)
         self.assertIn(str(root / "validation.json"), prompt)
@@ -321,7 +319,7 @@ class ReviewSafetyTests(unittest.TestCase):
             )
             runner.log.assert_called_once()
 
-    def test_simplification_prompts_are_exact_sha_and_corrections_do_not_restart(self) -> None:
+    def test_simplification_prompt_is_exact_sha(self) -> None:
         root = Path("/tmp/reviewer-test")
         pr = {
             "url": "https://example.test/pr/1",
@@ -339,17 +337,6 @@ class ReviewSafetyTests(unittest.TestCase):
         self.assertIn("base SHA: " + "a" * 40, prompt)
         self.assertIn("head SHA: " + "b" * 40, prompt)
         self.assertIn("edits allowed: true", prompt)
-        correction = simplification_correction_prompt(
-            skill_path=root / "skill",
-            pr=pr,
-            changed_files_path=root / "changed.txt",
-            prior_result=root / "result.json",
-            validation_evidence=root / "validation.json",
-        )
-        self.assertIn("Do not rerun the three specialist reviews", correction)
-        self.assertIn(str(root / "result.json"), correction)
-        self.assertIn(str(root / "validation.json"), correction)
-
     def test_human_pr_simplification_is_default_and_automation_branch_skips(self) -> None:
         project: dict[str, object] = {}
         self.assertIsNone(simplification_is_skipped({"headRefName": "feature/import"}, project))
@@ -418,26 +405,6 @@ class ReviewSafetyTests(unittest.TestCase):
             )
             self.assertEqual(remote_before, remote_input)
             self.assertNotEqual(local_head, remote_input)
-            evidence_path = root / "validation-evidence.json"
-            evidence_path.write_text(json.dumps({"head_sha": remote_input, "status": "passed"}))
-            bound_path = bind_validation_evidence_to_checkpoint(
-                runner,
-                workspace,
-                evidence_path,
-                original_head=remote_input,
-                checkpoint_head=local_head,
-                validated_fingerprint={
-                    "example.txt": hashlib.sha256((workspace / "example.txt").read_bytes()).hexdigest()
-                },
-                output=root / "bound-validation-evidence.json",
-            )
-            bound = json.loads(bound_path.read_text())
-            self.assertEqual(bound["source_head_sha"], remote_input)
-            self.assertEqual(bound["head_sha"], local_head)
-            self.assertEqual(
-                bound["checkpoint_tree_sha"],
-                self.git("rev-parse", f"{local_head}^{{tree}}", cwd=workspace),
-            )
             pushed = push_final_head(
                 runner,
                 workspace,
@@ -543,16 +510,12 @@ class ReviewSafetyTests(unittest.TestCase):
             }
             runner = Runner(root / "review.log")
             with mock.patch("review.changed_files_and_diff", return_value=(["src/a.ts"], "diff")), mock.patch(
-                "review.run_project_commands", return_value=[]
-            ), mock.patch(
-                "review.collect_project_commands", return_value=([], True, "")
-            ), mock.patch("review.assert_clean_workspace"), mock.patch(
-                "review.write_validation_evidence", return_value=root / "evidence.json"
+                "review.assert_clean_workspace"
             ), mock.patch(
                 "review.run_simplifier_orchestrator",
                 return_value=(result, root / "result.json"),
             ) as orchestrate:
-                current, state, evidence = run_simplification_phase(
+                current, state = run_simplification_phase(
                     runner,
                     {"state_root": str(root / "state")},
                     "example",
@@ -564,8 +527,7 @@ class ReviewSafetyTests(unittest.TestCase):
                 )
                 self.assertEqual(current, pr)
                 self.assertEqual(state["status"], "clean")
-                self.assertEqual(evidence, root / "evidence.json")
-                second, second_state, second_evidence = run_simplification_phase(
+                second, second_state = run_simplification_phase(
                     runner,
                     {"state_root": str(root / "state")},
                     "example",
@@ -577,7 +539,6 @@ class ReviewSafetyTests(unittest.TestCase):
                 )
                 self.assertEqual(second, pr)
                 self.assertEqual(second_state, state)
-                self.assertIsNone(second_evidence)
                 orchestrate.assert_called_once()
 
     def test_convex_ai_files_snapshot_is_fresh_and_hash_verified(self) -> None:
@@ -830,14 +791,13 @@ class ReviewSafetyTests(unittest.TestCase):
         self.assertIn("type error at src/example.ts:7", output)
         self.assertEqual(failure, "command failed (1): validate")
 
-    def test_failed_repair_validation_is_corrected_then_revalidated(self) -> None:
+    def test_failed_final_validation_is_corrected_then_revalidated(self) -> None:
         runner = mock.Mock()
         runner.log = mock.Mock()
         original = {"status": "repaired", "summary": "original"}
         corrected = {"status": "repaired", "summary": "corrected"}
         with (
             mock.patch("review.workspace_fingerprint", return_value={"test.ts": "hash"}),
-            mock.patch("review.run_project_commands", return_value="setup passed"),
             mock.patch(
                 "review.collect_project_commands",
                 side_effect=[
@@ -854,27 +814,27 @@ class ReviewSafetyTests(unittest.TestCase):
                 return_value=(corrected, Path("/tmp/corrected-result.json")),
             ) as correct,
         ):
-            result = validate_repair_with_corrections(
+            result = validate_final_result_with_corrections(
                 runner,
-                {"validation_correction_cycles": 2, "validation_attempts": 2},
+                {"validation_correction_cycles": 2, "validation_attempts": 1},
                 Path("/tmp/workspace"),
                 {"baseRefOid": "a" * 40, "headRefOid": "b" * 40},
                 Path("/tmp/run"),
                 Path("/tmp/changed.txt"),
                 Path("/tmp/docs.json"),
                 Path("/tmp/skills.json"),
-                [["setup"]],
                 [["validate"]],
                 [],
                 {},
                 original,
+                corrections_allowed=True,
             )
         self.assertIs(result, corrected)
         self.assertEqual(collect.call_count, 2)
-        self.assertTrue(all(call.kwargs["attempts"] == 2 for call in collect.call_args_list))
+        self.assertTrue(all(call.kwargs["attempts"] == 1 for call in collect.call_args_list))
         correct.assert_called_once()
         runner.log.assert_called_once_with(
-            "Post-repair validation failed; starting focused correction cycle 1/2"
+            "Final validation failed; starting focused correction cycle 1/2"
         )
 
     def test_pr_head_projection_is_polled_after_push(self) -> None:

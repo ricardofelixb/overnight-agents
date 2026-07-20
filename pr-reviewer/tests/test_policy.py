@@ -147,7 +147,7 @@ class PolicyTests(unittest.TestCase):
             validate_config(config, Path("x")),
         )
 
-    def test_simplification_policy_is_typed_and_correction_cycles_are_bounded(self) -> None:
+    def test_simplification_policy_is_typed(self) -> None:
         config = {
             "version": 1,
             "skill_path": "review-skill",
@@ -161,7 +161,6 @@ class PolicyTests(unittest.TestCase):
             "defaults": {
                 "simplify_human_prs": "yes",
                 "simplification_skip_head_patterns": ["code-simplify/*", ""],
-                "simplification_correction_cycles": 4,
             },
             "projects": [{
                 "name": "example",
@@ -176,10 +175,6 @@ class PolicyTests(unittest.TestCase):
         errors = validate_config(config, Path("x"))
         self.assertIn("example: simplify_human_prs must be boolean", errors)
         self.assertIn("example: simplification_skip_head_patterns must be non-empty strings", errors)
-        self.assertIn(
-            "example: simplification_correction_cycles must be between 1 and 3",
-            errors,
-        )
 
 
 if __name__ == "__main__":

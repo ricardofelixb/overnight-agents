@@ -44,15 +44,16 @@ GitHub event
   -> signed loopback webhook receiver
   -> durable, delivery-ID-deduplicated queue
   -> exact-SHA PR controller
-  -> behavior/contracts + security/provider + simplification/hygiene
+  -> PR simplifier
+  -> behavior/contracts + security/provider + simplification/hygiene reviewer
   -> fresh verifier
-  -> full validation gate
+  -> one definitive local validation gate
   -> verified repair commit or idempotent PR summary
 ```
 
 Provider routing uses progressive disclosure. The controller detects broad candidate domains and verifies a trusted catalog of fresh, hashed skills and official documentation, but Codex opens only the smallest skill topic and document required by a concrete code question. Candidate domains do not require provider evidence when repository code, types, tests, and project rules are sufficient. Fresh documentation caches are reused without another network request.
 
-The orchestrator may edit but cannot commit, push, comment on GitHub, approve, merge, or delete branches. After edits it uses a fresh verifier sub-agent. A deterministic controller owns the exact-SHA workspace, captures the initial full-validation result as repair evidence, checks the reported working-tree files, requires the complete gate to pass before any repair push or clean recommendation, and maintains one idempotent PR comment explaining either “safe to merge,” “fixed and safe to merge,” or the exact blocking decision. The user remains the final merger.
+The orchestrator may edit but cannot commit, push, comment on GitHub, approve, merge, or delete branches. After edits it uses a fresh verifier sub-agent. A deterministic controller owns the exact-SHA workspace, checks the reported working-tree files, runs one definitive local validation after both agent phases, and maintains one idempotent PR comment explaining either “safe to merge,” “fixed and safe to merge,” or the exact blocking decision. The user remains the final merger.
 
 Reviewer workspaces are disposable controller-owned clones. First-run and interrupted `--no-checkout` clones are checked out before cleanliness is evaluated; contaminated or incomplete workspaces are moved to an auditable quarantine and replaced atomically. Successful or blocked results are cached by PR head and update timestamp so the recovery schedule does not repeat unchanged reviews.
 
@@ -66,7 +67,7 @@ A semantic blocker sends one deduplicated outbound Telegram notification with th
 
 `pr-simplifier/skills/simplify-pr-implementation` is the default first-pass skill for eligible human PRs. It binds work to exact base/head SHAs and uses three read-only specialists for reuse, maintainability, and efficiency; the orchestrator may retain only behavior-preserving improvements that pass an independent verifier. It is PR-slice scoped rather than folder scoped, and it does not certify correctness, recommend merging, or replace `pr-reviewer`.
 
-The existing webhook queue owns one atomic lifecycle: human PR -> PR simplifier -> full validation and local simplification checkpoint -> ordinary PR reviewer in the same workspace -> full validation -> one final branch push and one idempotent comment. Nothing from the simplifier is pushed or commented independently. Before the single lease-protected push, the controller verifies that the remote PR branch still equals the original GitHub head; the lease makes that comparison atomic, so a concurrent human push aborts the publication instead of being overwritten. Exact-head state prevents the final controller-authored push from recursively starting another simplification pass. A later human push creates a new head and receives a fresh pass. Scheduled `code-simplify/*` PRs already received their simplification pass and proceed directly to `pr-reviewer`.
+The existing webhook queue owns one atomic lifecycle: human PR -> dependency setup -> PR simplifier -> local simplification checkpoint -> ordinary PR reviewer in the same workspace -> one definitive `pnpm run validate` -> one final branch push and one idempotent comment. Nothing from the simplifier is pushed or commented independently. Before the single lease-protected push, the controller verifies that the remote PR branch still equals the original GitHub head; the lease makes that comparison atomic, so a concurrent human push aborts the publication instead of being overwritten. Exact-head state prevents the final controller-authored push from recursively starting another simplification pass. A later human push creates a new head and receives a fresh pass. Scheduled `code-simplify/*` PRs already received their simplification pass and proceed directly to `pr-reviewer`.
 
 #### How the checklist works
 
@@ -219,7 +220,7 @@ The marker becomes complete only when the source refactor is ready and the contr
   "allowed_head_patterns": ["*"],
   "excluded_authors": ["dependabot[bot]", "app/dependabot"],
   "allow_forks": false,
-  "validation_commands": [["pnpm", "run", "validate:github"]],
+  "validation_commands": [["pnpm", "run", "validate"]],
   "mode": "repair"
 }
 ```
@@ -228,16 +229,14 @@ Draft PRs wait for `ready_for_review`. Cross-repository PRs remain blocked unles
 
 ### Validation self-healing
 
-The initial validation gate is evidence, not a pre-review dismissal:
+Local validation runs after both agent phases instead of duplicating GitHub CI before review:
 
-1. Capture local validation output and current GitHub check metadata at the immutable PR head.
-2. Include failed GitHub Actions step logs when available.
-3. Ask the specialists and orchestrator to reproduce and repair a bounded code cause.
-4. Never modify protected CI policy, weaken tests, or loosen types/lint to obtain green status.
-5. Retry a failed complete gate according to `validation_attempts` before spending another agent turn on a potentially transient failure.
-6. If the reviewer returns schema-valid but semantically contradictory JSON, run one bounded result-only correction without repeating specialist review; verifier status describes retained edits, not the separate controller/CI gate.
-7. If a reviewer-authored repair still fails validation, feed the exact failure back into up to two focused correction cycles without repeating the full specialist review.
-8. Require a fresh verifier and the complete configured validation command to pass before pushing a repair or posting a clean recommendation.
+1. Capture current GitHub check metadata and failed step logs as untrusted review evidence when available.
+2. Run the PR simplifier and correctness/security reviewer in one isolated workspace.
+3. Run the configured local validation command once against the final reviewed tree.
+4. If it fails, feed the exact failure into up to two focused correction cycles without repeating either full agent pass; each correction is revalidated.
+5. Never modify protected CI policy, weaken tests, or loosen types/lint to obtain green status.
+6. Require a fresh verifier and a passing definitive validation before pushing or posting a clean recommendation.
 
 If the failure is external, transient, ambiguous, or unsafe to repair, the reviewer reports the precise blocker instead of guessing.
 

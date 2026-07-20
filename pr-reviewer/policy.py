@@ -138,12 +138,10 @@ def validate_config(config: dict[str, Any], config_path: Path) -> list[str]:
             "ai_files_max_age_days": (1, 31),
             "validation_attempts": (1, 3),
             "validation_correction_cycles": (1, 3),
-            "simplification_correction_cycles": (1, 3),
             "result_contract_correction_cycles": (0, 2),
         }
         for field, (minimum, maximum) in numeric_ranges.items():
             defaults = {
-                "simplification_correction_cycles": 2,
                 "result_contract_correction_cycles": 1,
             }
             value = merged.get(field, defaults.get(field))

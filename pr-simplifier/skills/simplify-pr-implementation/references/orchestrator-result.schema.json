@@ -102,8 +102,7 @@
   "$defs": {
     "path": {
       "type": "string",
-      "minLength": 1,
-      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+      "minLength": 1
     },
     "paths": {
       "type": "array",

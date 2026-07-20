@@ -9,14 +9,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Prevent launchd, legacy cron, or a manual trigger from overlapping. lockf
 # releases the kernel lock automatically even if the child exits unexpectedly.
 if [[ "${SIMPLIFIER_LOCK_HELD:-false}" != "true" ]]; then
-  mkdir -p "$SCRIPT_DIR/state"
+  SHARED_STATE_DIR="$SCRIPT_DIR/../state"
+  mkdir -p "$SHARED_STATE_DIR"
   set +e
-  /usr/bin/lockf -s -t 0 -k "$SCRIPT_DIR/state/simplify.lock" \
+  /usr/bin/lockf -s -t 0 -k "$SHARED_STATE_DIR/maintenance.lock" \
     /usr/bin/env SIMPLIFIER_LOCK_HELD=true "$SCRIPT_DIR/simplify.sh" "$@"
   LOCK_EXIT_CODE=$?
   set -e
   if [[ "$LOCK_EXIT_CODE" -eq 75 ]]; then
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] SKIPPED: simplifier already running"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] SKIPPED: another maintenance agent is running"
     exit 0
   fi
   exit "$LOCK_EXIT_CODE"

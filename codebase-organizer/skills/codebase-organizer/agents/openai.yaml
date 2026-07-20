@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codebase Organizer"
+  short_description: "Organize code structure without behavior changes"
+  default_prompt: "Use $codebase-organizer to execute the next approved vertical organization slice without changing behavior."

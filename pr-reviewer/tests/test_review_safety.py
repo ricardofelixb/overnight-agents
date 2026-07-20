@@ -338,10 +338,14 @@ class ReviewSafetyTests(unittest.TestCase):
         self.assertIn(str(root / "validation.json"), correction)
 
     def test_human_pr_simplification_is_default_and_automation_branch_skips(self) -> None:
-        project = {"simplification_skip_head_patterns": ["code-simplify/*"]}
+        project: dict[str, object] = {}
         self.assertIsNone(simplification_is_skipped({"headRefName": "feature/import"}, project))
         self.assertEqual(
             simplification_is_skipped({"headRefName": "code-simplify/convex"}, project),
+            "already_simplified_automation",
+        )
+        self.assertEqual(
+            simplification_is_skipped({"headRefName": "code-organize/sales"}, project),
             "already_simplified_automation",
         )
         self.assertEqual(

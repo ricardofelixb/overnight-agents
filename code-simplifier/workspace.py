@@ -37,16 +37,21 @@ def git(cwd: Path, *arguments: str, check: bool = True) -> subprocess.CompletedP
     return run(["git", *arguments], cwd=cwd, check=check)
 
 
-def safe_workspace(workspace_root: Path, project_name: str, source_path: Path) -> Path:
+def safe_workspace(
+    workspace_root: Path,
+    project_name: str,
+    source_path: Path,
+    automation_label: str = "simplifier",
+) -> Path:
     if not re.fullmatch(r"[A-Za-z0-9._-]+", project_name):
         raise WorkspaceFailure("project name must contain only letters, digits, dots, underscores, or hyphens")
     root = workspace_root.expanduser().resolve()
     workspace = (root / project_name).resolve()
     source = source_path.expanduser().resolve()
     if root == Path("/") or workspace == root or root not in workspace.parents:
-        raise WorkspaceFailure("unsafe simplifier workspace path")
+        raise WorkspaceFailure(f"unsafe {automation_label} workspace path")
     if workspace == source or workspace in source.parents or source in workspace.parents:
-        raise WorkspaceFailure("simplifier workspace overlaps the source checkout")
+        raise WorkspaceFailure(f"{automation_label} workspace overlaps the source checkout")
     return workspace
 
 
@@ -65,6 +70,21 @@ def require_ignored(cwd: Path, relative_path: str) -> None:
         raise WorkspaceFailure(f"{relative_path} must be ignored before automation can provision it")
 
 
+def ensure_locally_ignored(cwd: Path, relative_path: str) -> None:
+    if "\n" in relative_path or relative_path.startswith("/") or ".." in Path(relative_path).parts:
+        raise WorkspaceFailure("unsafe local exclude path")
+    if git(cwd, "check-ignore", "-q", relative_path, check=False).returncode == 0:
+        return
+    exclude = cwd / ".git" / "info" / "exclude"
+    exclude.parent.mkdir(parents=True, exist_ok=True)
+    existing = exclude.read_text() if exclude.exists() else ""
+    entry = f"/{relative_path}\n"
+    if entry not in existing:
+        separator = "" if not existing or existing.endswith("\n") else "\n"
+        exclude.write_text(existing + separator + entry)
+    require_ignored(cwd, relative_path)
+
+
 def provision_symlink(cwd: Path, relative_path: str, source: Path) -> None:
     destination = cwd / relative_path
     if destination.is_symlink():
@@ -76,7 +96,12 @@ def provision_symlink(cwd: Path, relative_path: str, source: Path) -> None:
     destination.symlink_to(source)
 
 
-def provision_runtime_files(workspace: Path, environment_file: Path, checklist_file: Path) -> None:
+def provision_runtime_files(
+    workspace: Path,
+    environment_file: Path,
+    checklist_file: Path,
+    checklist_name: str = "simplification.md",
+) -> None:
     environment = require_private_file(environment_file, "project environment file")
     require_ignored(workspace, ".env.local")
     provision_symlink(workspace, ".env.local", environment)
@@ -85,7 +110,7 @@ def provision_runtime_files(workspace: Path, environment_file: Path, checklist_f
         workspace,
         "ls-files",
         "--error-unmatch",
-        "simplification.md",
+        checklist_name,
         check=False,
     ).returncode == 0
     if tracked_checklist:
@@ -93,8 +118,8 @@ def provision_runtime_files(workspace: Path, environment_file: Path, checklist_f
     checklist = checklist_file.expanduser().resolve(strict=True)
     if not checklist.is_file():
         raise WorkspaceFailure("simplification checklist is not a regular file")
-    require_ignored(workspace, "simplification.md")
-    provision_symlink(workspace, "simplification.md", checklist)
+    ensure_locally_ignored(workspace, checklist_name)
+    provision_symlink(workspace, checklist_name, checklist)
 
 
 def quarantine(workspace: Path, reason: str) -> Path:
@@ -106,12 +131,16 @@ def quarantine(workspace: Path, reason: str) -> Path:
     return destination
 
 
-def checkout_base(workspace: Path, base_branch: str) -> None:
+def checkout_base(
+    workspace: Path, base_branch: str, automation_label: str = "simplifier"
+) -> None:
     git(workspace, "fetch", "--prune", "origin", base_branch)
     git(workspace, "checkout", "-B", base_branch, f"origin/{base_branch}")
     git(workspace, "reset", "--hard", f"origin/{base_branch}")
     if git(workspace, "status", "--porcelain").stdout.strip():
-        raise WorkspaceFailure("prepared simplifier clone is unexpectedly dirty")
+        raise WorkspaceFailure(
+            f"prepared {automation_label} clone is unexpectedly dirty"
+        )
 
 
 def prepare_workspace(
@@ -123,9 +152,13 @@ def prepare_workspace(
     branch_prefix: str,
     environment_file: Path,
     checklist_file: Path,
+    checklist_name: str = "simplification.md",
+    automation_label: str = "simplifier",
 ) -> dict[str, str | bool]:
     source = source_path.expanduser().resolve(strict=True)
-    workspace = safe_workspace(workspace_root, project_name, source)
+    workspace = safe_workspace(
+        workspace_root, project_name, source, automation_label
+    )
     workspace.parent.mkdir(parents=True, exist_ok=True)
     origin = git(source, "remote", "get-url", "origin").stdout.strip()
     if not origin:
@@ -146,7 +179,9 @@ def prepare_workspace(
         status = git(workspace, "status", "--porcelain").stdout.strip()
         current_branch = git(workspace, "branch", "--show-current", check=False).stdout.strip()
         if status and current_branch.startswith(f"{branch_prefix}/"):
-            provision_runtime_files(workspace, environment_file, checklist_file)
+            provision_runtime_files(
+                workspace, environment_file, checklist_file, checklist_name
+            )
             return {"workspace": str(workspace), "resuming": True, "branch": current_branch}
         if status:
             quarantine(workspace, "dirty-unexpected-branch")
@@ -156,18 +191,22 @@ def prepare_workspace(
         try:
             shutil.rmtree(temporary)
             run(["git", "clone", "--no-checkout", origin, str(temporary)])
-            checkout_base(temporary, base_branch)
+            checkout_base(temporary, base_branch, automation_label)
             if workspace.exists():
-                raise WorkspaceFailure("simplifier workspace appeared concurrently during provisioning")
+                raise WorkspaceFailure(
+                    f"{automation_label} workspace appeared concurrently during provisioning"
+                )
             temporary.rename(workspace)
         except Exception:
             if temporary.exists():
                 quarantine(temporary, "provision-failed")
             raise
     else:
-        checkout_base(workspace, base_branch)
+        checkout_base(workspace, base_branch, automation_label)
 
-    provision_runtime_files(workspace, environment_file, checklist_file)
+    provision_runtime_files(
+        workspace, environment_file, checklist_file, checklist_name
+    )
     return {"workspace": str(workspace), "resuming": False, "branch": ""}
 
 
@@ -180,6 +219,8 @@ def main() -> int:
     parser.add_argument("--branch-prefix", required=True)
     parser.add_argument("--environment-file", type=Path, required=True)
     parser.add_argument("--checklist-file", type=Path, required=True)
+    parser.add_argument("--checklist-name", default="simplification.md")
+    parser.add_argument("--automation-label", default="simplifier")
     args = parser.parse_args()
     try:
         result = prepare_workspace(
@@ -190,6 +231,8 @@ def main() -> int:
             branch_prefix=args.branch_prefix,
             environment_file=args.environment_file,
             checklist_file=args.checklist_file,
+            checklist_name=args.checklist_name,
+            automation_label=args.automation_label,
         )
     except (OSError, WorkspaceFailure) as error:
         parser.exit(1, f"workspace preparation failed: {error}\n")

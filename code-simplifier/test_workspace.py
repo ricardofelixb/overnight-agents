@@ -99,6 +99,30 @@ class WorkspaceTests(unittest.TestCase):
             with self.assertRaisesRegex(WorkspaceFailure, "not a controller-managed symlink"):
                 self.prepare(root, source, environment, checklist)
 
+    def test_alternate_checklist_is_excluded_locally_and_provisioned(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, environment, checklist, _ = self.fixture(root)
+            result = prepare_workspace(
+                source_path=source,
+                workspace_root=root / "organizer-workspaces",
+                project_name="example",
+                base_branch="main",
+                branch_prefix="code-organize",
+                environment_file=environment,
+                checklist_file=checklist,
+                checklist_name="organization.md",
+                automation_label="organizer",
+            )
+            workspace = Path(str(result["workspace"]))
+            self.assertEqual(
+                (workspace / "organization.md").resolve(), checklist.resolve()
+            )
+            self.assertEqual(
+                self.git("check-ignore", "organization.md", cwd=workspace),
+                "organization.md",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -23,6 +23,16 @@ Ignored automation state is stored outside the clone and symlinked into it. Each
 
 The same private environment file can be configured for the PR reviewer through its per-project `environment_file`. Both controllers require `.env.local` to be ignored and refuse unmanaged or broadly readable environment files.
 
+### codebase-organizer
+
+Executes one approved, behavior-preserving source-organization slice at a time from `organization.md`. Each checklist item binds a correlated Convex domain, frontend domain, route implementation, adapters, generated references, and tests. Internal source vocabulary is English; client-facing Spanish copy and routes remain unchanged.
+
+The organizer performs clean atomic refactors: it removes old paths and updates every repository-controlled caller without barrels, forwarding modules, aliases, compatibility shims, or legacy fallbacks. A reusable `codebase-organizer` skill defines canonical folder and filename patterns, while each project's persistent checklist defines its exact approved moves.
+
+Runs use an isolated controller-owned clone, a global and per-project enable switch, and one active organizer PR per project. The deterministic controller owns the definitive validation, commit, push, and PR creation. Organizer branches skip the generic PR simplification pass and proceed directly to the existing correctness/security PR reviewer.
+
+`code-simplifier` and `codebase-organizer` share `state/maintenance.lock`, preventing overlapping scheduled maintenance even if both LaunchAgents are enabled.
+
 ### pr-reviewer
 
 Reviews every eligible human-authored pull request at an exact base/head pair. One Codex orchestrator spawns three specialist sub-agents for behavior/contracts, security/provider boundaries, and an independent simplification/hygiene pass. It reconciles their evidence, reads SHA-bound PR comments, reviews, and GitHub CI logs as untrusted leads, consults allowlisted current provider documentation and promoted official skills, and directly repairs every proven bounded issue in the touched behavioral slice. Repairs may address introduced defects, pre-existing defects, valid PR follow-ups, security hardening, performance, worthwhile code hygiene, or a reproducible validation-gate failure.
@@ -84,6 +94,7 @@ Add `simplification.md` to `.gitignore`. Each run picks the next unchecked folde
    cp code-simplifier/config.example.sh code-simplifier/config.sh
    cp pr-reviewer/config.example.json pr-reviewer/config.json
    cp pr-reviewer/.env.example pr-reviewer/.env
+   cp codebase-organizer/config.example.json codebase-organizer/config.json
    ```
 
 3. Set private environment files to owner-only access:
@@ -108,6 +119,15 @@ Add `simplification.md` to `.gitignore`. Each run picks the next unchecked folde
    ```bash
    ./code-simplifier/install_launchd.py
    ```
+
+   Install the codebase organizer skill and scheduled LaunchAgent when using organization checklists:
+
+   ```bash
+   ./codebase-organizer/install.sh
+   ./codebase-organizer/install_launchd.py
+   ```
+
+   Keep only one of the simplifier or organizer globally enabled while performing broad structural work. Their shared maintenance lock still prevents accidental overlap.
 
 7. Install the human-PR simplifier, reviewer skill, and promoted provider bundle globally:
 
@@ -171,6 +191,20 @@ PROJECTS=(
 
 Projects rotate round-robin. Disabled projects are skipped.
 
+`codebase-organizer/config.json` uses the same global/project enable model in JSON. Every project additionally supplies a private environment file, persistent checklist path, repository, base branch, and definitive validation command. The exac organizer uses `pnpm run validate`, which includes the full test suite and `convex dev --once`.
+
+The organization checklist uses one top-level item per correlated vertical slice:
+
+```markdown
+- [ ] **sales** — Align the complete sales product domain
+  - Backend: `convex/receipts/` → `convex/sales/`
+  - Frontend: `src/components/receipts/` → `src/components/sales/`
+  - Preserve: `/ventas`, Spanish copy, receipt entity vocabulary, and wire contracts.
+  - Remove: old paths, aliases, barrels, forwarding files, and fallbacks.
+```
+
+The marker becomes complete only when the source refactor is ready and the controller's definitive validation passes. An open organizer PR blocks later checklist items; a closed-unmerged organizer PR restores its item to unchecked.
+
 ### PR reviewer
 
 `pr-reviewer/config.json` is local and ignored. Each enabled project defines its repository, source checkout, base branch, environment file, and exact validation commands. To review every same-repository human branch while excluding Dependabot:
@@ -227,6 +261,12 @@ If the failure is external, transient, ambiguous, or unsafe to repair, the revie
 ```bash
 ./code-simplifier/simplify.sh
 
+# Inspect the next organization item without editing.
+./codebase-organizer/organize.py --project exac
+
+# Execute one organization item and publish its validated PR.
+./codebase-organizer/organize.py --project exac --apply
+
 # Review one exact PR with verified repairs enabled.
 ./pr-reviewer/review.py \
   --config ./pr-reviewer/config.json \
@@ -273,6 +313,10 @@ tailscale funnel --https 8443 off
 ## Logs and state
 
 - `code-simplifier/logs/` — simplifier run history
+- `codebase-organizer/logs/` — organizer run history
+- `codebase-organizer/state/checklists/` — persistent project organization checklists
+- `codebase-organizer/state/workspaces/` — isolated organizer clones
+- `codebase-organizer/state/pending/` — active organizer PR/item state
 - `pr-reviewer/logs/webhook.log` — receiver health and HTTP status lines; request bodies and signatures are never logged
 - `pr-reviewer/logs/webhook-worker.log` — queued review controller output
 - `pr-reviewer/logs/reconcile.log` — recovery sweep output

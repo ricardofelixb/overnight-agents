@@ -25,7 +25,7 @@
     "validation_correction_cycles": 2,
     "simplification_correction_cycles": 2,
     "simplify_human_prs": true,
-    "simplification_skip_head_patterns": ["code-simplify/*"],
+    "simplification_skip_head_patterns": ["code-simplify/*", "code-organize/*"],
     "telegram_notifications_enabled": true,
     "validation_environment": {},
     "protected_policy_patterns": [

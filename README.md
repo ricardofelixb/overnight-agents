@@ -249,7 +249,7 @@ If the failure is external, transient, ambiguous, or unsafe to repair, the revie
 - Requires private project environment files and ignored workspace symlinks
 - Verifies changes with linter/build before committing
 - Keeps the last 30 log files, prunes older ones
-- Refuses reviewer-policy, workflow, dependency-manifest, and provider-guidance changes
+- Refuses PRs that alter trusted reviewer policy, workflow, or generated provider guidance; dependency manifests and lockfiles remain reviewable input but are immutable to the agents
 - Uses a dedicated clone and refuses dirty or overlapping review workspaces
 - Repairs only proven, bounded changes with unambiguous intended behavior, regardless of whether the defect is introduced or pre-existing
 - Fails closed on stale docs/skills, unsafe scope, stale SHAs, schema mismatch, or validation mutation

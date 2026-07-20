@@ -37,13 +37,15 @@
       ".claude/**",
       ".codex/**",
       ".github/**",
+      "convex/_generated/ai/guidelines.md"
+    ],
+    "protected_agent_edit_patterns": [
       "package.json",
       "pnpm-lock.yaml",
       "package-lock.json",
       "yarn.lock",
       "bun.lock",
-      "bun.lockb",
-      "convex/_generated/ai/guidelines.md"
+      "bun.lockb"
     ]
   },
   "projects": [

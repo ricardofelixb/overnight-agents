@@ -548,6 +548,16 @@ def reject_policy_changes(changed_files: list[str], patterns: list[str]) -> None
         raise ReviewFailure("PR changes trusted agent/review policy: " + ", ".join(sorted(protected)))
 
 
+def reject_protected_agent_edits(changed_files: list[str], config: dict[str, Any]) -> None:
+    patterns = [
+        *config.get("protected_policy_patterns", []),
+        *config.get("protected_agent_edit_patterns", []),
+    ]
+    protected = [path for path in changed_files if any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns)]
+    if protected:
+        raise ReviewFailure("agent changed protected files: " + ", ".join(sorted(protected)))
+
+
 def validate_skill_lock(config: dict[str, Any], domains: list[str]) -> dict[str, Any]:
     lock = load_json(Path(config["skills_lock"]))
     if lock.get("version") != 1:
@@ -857,7 +867,7 @@ def validate_simplifier_result(
     )
     result = load_json(output)
     if actual_changes:
-        reject_policy_changes(actual_changes, config.get("protected_policy_patterns", []))
+        reject_protected_agent_edits(actual_changes, config)
     return result
 
 
@@ -1154,7 +1164,7 @@ def validate_orchestrator_result(
     if actual != reported:
         raise ReviewFailure("orchestrator changed-file report does not match the working tree")
     if actual:
-        reject_policy_changes(sorted(actual), config.get("protected_policy_patterns", []))
+        reject_protected_agent_edits(sorted(actual), config)
     return result
 
 

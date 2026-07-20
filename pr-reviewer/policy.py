@@ -120,6 +120,12 @@ def validate_config(config: dict[str, Any], config_path: Path) -> list[str]:
             isinstance(pattern, str) and pattern and "\0" not in pattern for pattern in skip_patterns
         ):
             errors.append(f"{name}: simplification_skip_head_patterns must be non-empty strings")
+        for field in ("protected_policy_patterns", "protected_agent_edit_patterns"):
+            patterns = merged.get(field, [])
+            if not isinstance(patterns, list) or not all(
+                isinstance(pattern, str) and pattern and "\0" not in pattern for pattern in patterns
+            ):
+                errors.append(f"{name}: {field} must contain non-empty strings")
         numeric_ranges = {
             "command_timeout_seconds": (60, 21600),
             "max_changed_files": (1, 1000),

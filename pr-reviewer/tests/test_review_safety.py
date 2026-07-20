@@ -35,6 +35,8 @@ from review import (
     push_final_head,
     record_simplification_state,
     record_review_state,
+    reject_policy_changes,
+    reject_protected_agent_edits,
     result_contract_correction_prompt,
     review_is_current,
     run_orchestrator,
@@ -64,6 +66,17 @@ class ReviewSafetyTests(unittest.TestCase):
             stderr=subprocess.STDOUT,
             check=True,
         ).stdout.strip()
+
+    def test_dependency_manifests_are_reviewable_but_not_agent_editable(self) -> None:
+        config = {
+            "protected_policy_patterns": ["AGENTS.md", ".github/**"],
+            "protected_agent_edit_patterns": ["package.json", "pnpm-lock.yaml"],
+        }
+        reject_policy_changes(["package.json", "pnpm-lock.yaml"], config["protected_policy_patterns"])
+        with self.assertRaisesRegex(ReviewFailure, "agent changed protected files"):
+            reject_protected_agent_edits(["package.json"], config)
+        with self.assertRaisesRegex(ReviewFailure, "trusted agent/review policy"):
+            reject_policy_changes(["AGENTS.md"], config["protected_policy_patterns"])
 
     def repository_fixture(self, root: Path) -> tuple[Path, Path, str]:
         origin = root / "origin.git"

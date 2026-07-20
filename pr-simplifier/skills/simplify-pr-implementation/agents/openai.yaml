@@ -1,0 +1,4 @@
+interface:
+  display_name: "Simplify PR Implementation"
+  short_description: "Simplify human PRs before correctness review"
+  default_prompt: "Use $simplify-pr-implementation to simplify this exact PR implementation while preserving its behavior."

@@ -147,6 +147,40 @@ class PolicyTests(unittest.TestCase):
             validate_config(config, Path("x")),
         )
 
+    def test_simplification_policy_is_typed_and_correction_cycles_are_bounded(self) -> None:
+        config = {
+            "version": 1,
+            "skill_path": "review-skill",
+            "simplifier_skill_path": "simplifier-skill",
+            "workspace_root": "workspaces",
+            "state_root": "state",
+            "docs_catalog": "docs.json",
+            "skills_lock": "skills.json",
+            "telegram_env": ".env",
+            "webhook_env": ".env",
+            "defaults": {
+                "simplify_human_prs": "yes",
+                "simplification_skip_head_patterns": ["code-simplify/*", ""],
+                "simplification_correction_cycles": 4,
+            },
+            "projects": [{
+                "name": "example",
+                "source_path": "/tmp/example",
+                "repository": "trusted/example",
+                "base_branch": "main",
+                "allowed_head_patterns": ["*"],
+                "allowed_authors": [],
+                "validation_commands": [["true"]],
+            }],
+        }
+        errors = validate_config(config, Path("x"))
+        self.assertIn("example: simplify_human_prs must be boolean", errors)
+        self.assertIn("example: simplification_skip_head_patterns must be non-empty strings", errors)
+        self.assertIn(
+            "example: simplification_correction_cycles must be between 1 and 3",
+            errors,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

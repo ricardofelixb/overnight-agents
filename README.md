@@ -52,6 +52,12 @@ The reviewer defaults to `repair`. `observe` remains available for a read-only d
 
 A semantic blocker sends one deduplicated outbound Telegram notification with the decision needed. Delivery uses no webhook or inbound listener. Failed sends remain in a durable outbox and are retried by the recovery schedule; notification failure never changes the PR review result.
 
+### pr-simplifier skill
+
+`pr-simplifier/skills/simplify-pr-implementation` is the default first-pass skill for eligible human PRs. It binds work to exact base/head SHAs and uses three read-only specialists for reuse, maintainability, and efficiency; the orchestrator may retain only behavior-preserving improvements that pass an independent verifier. It is PR-slice scoped rather than folder scoped, and it does not certify correctness, recommend merging, or replace `pr-reviewer`.
+
+The existing webhook queue owns the complete lifecycle: human PR -> PR simplifier -> full validation and optional simplification commit -> ordinary PR reviewer -> final idempotent comment. Exact-head state prevents controller-authored pushes from recursively starting another simplification pass. A later human push creates a new head and receives a fresh pass. Scheduled `code-simplify/*` PRs already received their simplification pass and proceed directly to `pr-reviewer`.
+
 #### How the checklist works
 
 Create a `simplification.md` in each target repo with a folder tree:
@@ -103,11 +109,13 @@ Add `simplification.md` to `.gitignore`. Each run picks the next unchecked folde
    ./code-simplifier/install_launchd.py
    ```
 
-7. Install the reviewer skill and promoted provider bundle globally:
+7. Install the human-PR simplifier, reviewer skill, and promoted provider bundle globally:
 
    ```bash
    ./pr-reviewer/install.sh
    ```
+
+   `pr-simplifier/install.sh` remains available when only the reusable simplification skill is needed.
 
 8. On macOS, install the launchd services for the persistent webhook receiver, recovery sweep, and weekly provider-context refresh:
 

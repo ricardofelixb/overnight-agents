@@ -22,14 +22,20 @@ from review import (
     capture_review_context,
     collect_project_commands,
     correction_prompt,
+    current_simplification_state,
     fetch_pr_at_head,
     format_review_comment,
     legacy_head_was_reviewed,
     orchestrator_prompt,
     prepare_workspace,
+    record_simplification_state,
     record_review_state,
     review_is_current,
     run_project_commands,
+    run_simplification_phase,
+    simplification_correction_prompt,
+    simplification_is_skipped,
+    simplification_prompt,
     tree_hash,
     upsert_review_comment,
     validate_docs_manifest,
@@ -154,6 +160,7 @@ class ReviewSafetyTests(unittest.TestCase):
             "validation_evidence": root / "validation.json",
             "ai_files_manifest": root / "ai-files.json",
             "repairs_allowed": True,
+            "simplification_context": root / "simplification.json",
         })
         self.assertIn("Spawn the three named specialist sub-agents concurrently", prompt)
         self.assertIn("pre-existed at the base", prompt)
@@ -165,6 +172,8 @@ class ReviewSafetyTests(unittest.TestCase):
         self.assertIn("Do not open every skill or document", prompt)
         self.assertIn(str(root / "ai-files.json"), prompt)
         self.assertIn("generated guidelines", prompt)
+        self.assertIn(str(root / "simplification.json"), prompt)
+        self.assertIn("untrusted lead", prompt)
 
     def test_correction_prompt_resumes_without_restarting_specialists(self) -> None:
         root = Path("/tmp/reviewer-test")
@@ -180,6 +189,135 @@ class ReviewSafetyTests(unittest.TestCase):
         self.assertIn(str(root / "result.json"), prompt)
         self.assertIn(str(root / "validation.json"), prompt)
         self.assertIn("spawn one fresh read-only verifier", prompt)
+
+    def test_simplification_prompts_are_exact_sha_and_corrections_do_not_restart(self) -> None:
+        root = Path("/tmp/reviewer-test")
+        pr = {
+            "url": "https://example.test/pr/1",
+            "number": 1,
+            "baseRefOid": "a" * 40,
+            "headRefOid": "b" * 40,
+        }
+        prompt = simplification_prompt(
+            skill_path=root / "skill",
+            pr=pr,
+            changed_files_path=root / "changed.txt",
+            edits_allowed=True,
+        )
+        self.assertIn("three named read-only specialist sub-agents concurrently", prompt)
+        self.assertIn("base SHA: " + "a" * 40, prompt)
+        self.assertIn("head SHA: " + "b" * 40, prompt)
+        self.assertIn("edits allowed: true", prompt)
+        correction = simplification_correction_prompt(
+            skill_path=root / "skill",
+            pr=pr,
+            changed_files_path=root / "changed.txt",
+            prior_result=root / "result.json",
+            validation_evidence=root / "validation.json",
+        )
+        self.assertIn("Do not rerun the three specialist reviews", correction)
+        self.assertIn(str(root / "result.json"), correction)
+        self.assertIn(str(root / "validation.json"), correction)
+
+    def test_human_pr_simplification_is_default_and_automation_branch_skips(self) -> None:
+        project = {"simplification_skip_head_patterns": ["code-simplify/*"]}
+        self.assertIsNone(simplification_is_skipped({"headRefName": "feature/import"}, project))
+        self.assertEqual(
+            simplification_is_skipped({"headRefName": "code-simplify/convex"}, project),
+            "already_simplified_automation",
+        )
+        self.assertEqual(
+            simplification_is_skipped(
+                {"headRefName": "feature/import"}, project | {"simplify_human_prs": False}
+            ),
+            "disabled",
+        )
+
+    def test_simplification_state_is_exact_head_and_preserves_commit_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            pr = {"number": 7, "headRefOid": "b" * 40}
+            state = record_simplification_state(
+                root,
+                "example",
+                pr,
+                input_head_sha="a" * 40,
+                result={"status": "simplified", "summary": "Reused helper.", "improvements": [{}]},
+                reason="simplification_commit",
+            )
+            self.assertEqual(current_simplification_state(root, "example", pr), state)
+            self.assertEqual(state["simplification_head_sha"], "b" * 40)
+            self.assertIsNone(
+                current_simplification_state(root, "example", pr | {"headRefOid": "c" * 40})
+            )
+
+    def test_clean_human_head_runs_simplifier_once(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run_dir = root / "run"
+            run_dir.mkdir()
+            workspace = root / "workspace"
+            workspace.mkdir()
+            pr = {
+                "number": 7,
+                "url": "https://example.test/pr/7",
+                "baseRefOid": "a" * 40,
+                "headRefOid": "b" * 40,
+                "headRefName": "feature/import",
+            }
+            project = {
+                "repository": "trusted/example",
+                "validation_commands": [["true"]],
+                "setup_commands": [],
+                "validation_success_markers": [],
+                "validation_environment": {},
+                "validation_attempts": 1,
+                "mode": "repair",
+                "protected_policy_patterns": [],
+            }
+            result = {
+                "status": "clean",
+                "summary": "No worthwhile simplification.",
+                "improvements": [],
+                "remaining_observations": [],
+                "blocking_reasons": [],
+            }
+            runner = Runner(root / "review.log")
+            with mock.patch("review.changed_files_and_diff", return_value=(["src/a.ts"], "diff")), mock.patch(
+                "review.run_project_commands", return_value=[]
+            ), mock.patch(
+                "review.collect_project_commands", return_value=([], True, "")
+            ), mock.patch("review.assert_clean_workspace"), mock.patch(
+                "review.write_validation_evidence", return_value=root / "evidence.json"
+            ), mock.patch(
+                "review.run_simplifier_orchestrator",
+                return_value=(result, root / "result.json"),
+            ) as orchestrate:
+                current, state = run_simplification_phase(
+                    runner,
+                    {"state_root": str(root / "state")},
+                    "example",
+                    project,
+                    workspace,
+                    pr,
+                    run_dir,
+                    apply=True,
+                )
+                self.assertEqual(current, pr)
+                self.assertEqual(state["status"], "clean")
+                second, second_state = run_simplification_phase(
+                    runner,
+                    {"state_root": str(root / "state")},
+                    "example",
+                    project,
+                    workspace,
+                    pr,
+                    run_dir,
+                    apply=True,
+                )
+                self.assertEqual(second, pr)
+                self.assertEqual(second_state, state)
+                orchestrate.assert_called_once()
 
     def test_convex_ai_files_snapshot_is_fresh_and_hash_verified(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -269,6 +407,24 @@ class ReviewSafetyTests(unittest.TestCase):
         self.assertIn("improved, decision still required", repaired_blocked_comment)
         self.assertIn("product decision required", repaired_blocked_comment)
         self.assertIn("pnpm run validate", repaired_blocked_comment)
+
+        simplified_comment = format_review_comment(
+            clean,
+            original_head="b" * 40,
+            final_head="b" * 40,
+            validation_commands=[["pnpm", "run", "validate"]],
+            simplification={
+                "status": "simplified",
+                "reason": "simplification_commit",
+                "input_head_sha": "a" * 40,
+                "head_sha": "c" * 40,
+                "simplification_head_sha": "b" * 40,
+                "improvements": [{"id": "reuse-helper"}],
+            },
+        )
+        self.assertIn("Implementation simplification", simplified_comment)
+        self.assertIn(("b" * 12), simplified_comment)
+        self.assertNotIn(("c" * 12), simplified_comment)
 
     def test_comment_includes_only_supplied_manual_ui_checks(self) -> None:
         result = {

@@ -110,6 +110,13 @@ def validate_config(config: dict[str, Any], config_path: Path) -> list[str]:
             errors.append(f"{name}: mode must be observe or repair")
         if not isinstance(merged.get("telegram_notifications_enabled", False), bool):
             errors.append(f"{name}: telegram_notifications_enabled must be boolean")
+        if not isinstance(merged.get("simplify_human_prs", True), bool):
+            errors.append(f"{name}: simplify_human_prs must be boolean")
+        skip_patterns = merged.get("simplification_skip_head_patterns", ["code-simplify/*"])
+        if not isinstance(skip_patterns, list) or not skip_patterns or not all(
+            isinstance(pattern, str) and pattern and "\0" not in pattern for pattern in skip_patterns
+        ):
+            errors.append(f"{name}: simplification_skip_head_patterns must be non-empty strings")
         numeric_ranges = {
             "command_timeout_seconds": (60, 21600),
             "max_changed_files": (1, 1000),
@@ -122,13 +129,15 @@ def validate_config(config: dict[str, Any], config_path: Path) -> list[str]:
             "ai_files_max_age_days": (1, 31),
             "validation_attempts": (1, 3),
             "validation_correction_cycles": (1, 3),
+            "simplification_correction_cycles": (1, 3),
         }
         for field, (minimum, maximum) in numeric_ranges.items():
-            value = merged.get(field)
+            value = merged.get(field, 2 if field == "simplification_correction_cycles" else None)
             if not isinstance(value, int) or not minimum <= value <= maximum:
                 errors.append(f"{name}: {field} must be between {minimum} and {maximum}")
     for field in (
         "skill_path",
+        "simplifier_skill_path",
         "workspace_root",
         "state_root",
         "docs_catalog",

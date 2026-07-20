@@ -1,6 +1,7 @@
 {
   "version": 1,
   "skill_path": "./skills/autonomous-pr-review",
+  "simplifier_skill_path": "../pr-simplifier/skills/simplify-pr-implementation",
   "workspace_root": "./state/workspaces",
   "state_root": "./state",
   "docs_catalog": "./docs-catalog.json",
@@ -22,6 +23,9 @@
     "ai_files_max_age_days": 8,
     "validation_attempts": 2,
     "validation_correction_cycles": 2,
+    "simplification_correction_cycles": 2,
+    "simplify_human_prs": true,
+    "simplification_skip_head_patterns": ["code-simplify/*"],
     "telegram_notifications_enabled": true,
     "validation_environment": {},
     "protected_policy_patterns": [

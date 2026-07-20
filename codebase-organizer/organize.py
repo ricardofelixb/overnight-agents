@@ -355,7 +355,7 @@ def run_agent(
             "exec",
             "--dangerously-bypass-approvals-and-sandbox",
             "-c",
-            f'model_reasoning_effort="{config.get("codex_reasoning_effort", "high")}"',
+            f'model_reasoning_effort="{config.get("codex_reasoning_effort", "medium")}"',
             "-m",
             str(config.get("codex_model", "gpt-5.6-terra")),
             "-C",

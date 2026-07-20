@@ -57,19 +57,18 @@ def definitions(script_dir: Path) -> dict[str, dict[str, Any]]:
     logs.mkdir(parents=True, exist_ok=True)
     python = sys.executable
 
-    recovery = plist_base(
+    notification_retry = plist_base(
         "com.overnight-agents.pr-reviewer",
         script_dir,
         logs / LABELS["com.overnight-agents.pr-reviewer"],
     )
-    recovery.update(
+    notification_retry.update(
         {
             "ProgramArguments": [
                 python,
                 str(script_dir / "reconcile.py"),
                 "--config",
                 str(script_dir / "config.json"),
-                "--apply",
             ],
             "StartInterval": 1800,
         }
@@ -120,7 +119,7 @@ def definitions(script_dir: Path) -> dict[str, dict[str, Any]]:
         }
     )
     return {
-        recovery["Label"]: recovery,
+        notification_retry["Label"]: notification_retry,
         webhook["Label"]: webhook,
         refresh["Label"]: refresh,
     }

@@ -52,6 +52,28 @@ class WebhookTests(unittest.TestCase):
             "pull_request": {"draft": False, "user": {"login": author}},
         }
 
+    def review_command_payload(
+        self,
+        *,
+        body: str = "/review",
+        association: str = "OWNER",
+        author: str = "trusted",
+    ) -> dict:
+        return {
+            "action": "created",
+            "repository": {"full_name": "trusted/example"},
+            "issue": {
+                "number": 17,
+                "state": "open",
+                "pull_request": {"url": "https://api.github.test/pulls/17"},
+            },
+            "comment": {
+                "body": body,
+                "author_association": association,
+                "user": {"login": author},
+            },
+        }
+
     def test_signature_validation_is_exact(self) -> None:
         body = b'{"zen":"safe"}'
         signature = "sha256=" + hmac.new(b"secret", body, hashlib.sha256).hexdigest()
@@ -59,49 +81,44 @@ class WebhookTests(unittest.TestCase):
         self.assertFalse(signature_is_valid("secret", body + b"x", signature))
         self.assertFalse(signature_is_valid("", body, signature))
 
-    def test_human_pull_request_is_queued_once(self) -> None:
+    def test_authorized_review_command_is_queued_once(self) -> None:
         application, queue = self.application()
-        status, body = application.handle("pull_request", "delivery-1", self.pull_request_payload())
+        status, body = application.handle(
+            "issue_comment",
+            "delivery-1",
+            self.review_command_payload(),
+        )
         self.assertEqual((status, body["status"]), (202, "queued"))
         self.assertEqual(queue.jobs["delivery-1"]["pr_number"], 17)
-        _, duplicate = application.handle("pull_request", "delivery-1", self.pull_request_payload())
+        self.assertTrue(queue.jobs["delivery-1"]["force"])
+        _, duplicate = application.handle(
+            "issue_comment",
+            "delivery-1",
+            self.review_command_payload(),
+        )
         self.assertEqual(duplicate["status"], "duplicate")
 
-    def test_dependabot_and_drafts_are_ignored(self) -> None:
+    def test_pushes_non_commands_and_unauthorized_comments_are_ignored(self) -> None:
         application, queue = self.application()
-        _, bot = application.handle(
-            "pull_request", "delivery-bot", self.pull_request_payload("dependabot[bot]")
+        _, push = application.handle(
+            "pull_request",
+            "delivery-push",
+            self.pull_request_payload(),
         )
-        draft_payload = self.pull_request_payload()
-        draft_payload["pull_request"]["draft"] = True
-        _, draft = application.handle("pull_request", "delivery-draft", draft_payload)
-        self.assertEqual(bot, {"status": "ignored", "reason": "author"})
-        self.assertEqual(draft, {"status": "ignored", "reason": "draft"})
+        _, non_command = application.handle(
+            "issue_comment",
+            "delivery-comment",
+            self.review_command_payload(body="looks good"),
+        )
+        _, unauthorized = application.handle(
+            "issue_comment",
+            "delivery-outsider",
+            self.review_command_payload(association="NONE"),
+        )
+        self.assertEqual(push, {"status": "ignored", "reason": "event"})
+        self.assertEqual(non_command, {"status": "ignored", "reason": "command"})
+        self.assertEqual(unauthorized, {"status": "ignored", "reason": "authorization"})
         self.assertEqual(queue.jobs, {})
-
-    def test_failed_check_suite_forces_same_head_review(self) -> None:
-        application, queue = self.application()
-        payload = {
-            "action": "completed",
-            "repository": {"full_name": "trusted/example"},
-            "check_suite": {"conclusion": "failure", "pull_requests": [{"number": 17}]},
-        }
-        status, body = application.handle("check_suite", "delivery-ci", payload)
-        self.assertEqual((status, body), (202, {"status": "queued", "count": 1}))
-        self.assertTrue(queue.jobs["delivery-ci-17"]["force"])
-        self.assertEqual(queue.jobs["delivery-ci-17"]["action"], "check_suite_failure")
-
-    def test_human_review_feedback_forces_updated_context_review(self) -> None:
-        application, queue = self.application()
-        payload = {
-            "action": "submitted",
-            "repository": {"full_name": "trusted/example"},
-            "pull_request": {"number": 17, "user": {"login": "trusted"}},
-        }
-        status, body = application.handle("pull_request_review", "delivery-review", payload)
-        self.assertEqual((status, body["status"]), (202, "queued"))
-        self.assertTrue(queue.jobs["delivery-review"]["force"])
-        self.assertEqual(queue.jobs["delivery-review"]["action"], "pull_request_review:submitted")
 
     def test_interrupted_delivery_is_recovered(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -124,18 +141,13 @@ class WebhookTests(unittest.TestCase):
             self.assertEqual(env.stat().st_mode & 0o777, 0o600)
             self.assertNotEqual(values["GITHUB_WEBHOOK_SECRET"], "")
 
-    def test_github_hook_uses_pull_request_and_failed_check_events(self) -> None:
+    def test_github_hook_uses_only_issue_comments(self) -> None:
         with mock.patch("configure_webhook.gh", return_value=[]), mock.patch(
             "configure_webhook.gh_with_payload",
             return_value={
                 "id": 42,
                 "active": True,
-                "events": [
-                    "pull_request",
-                    "pull_request_review",
-                    "pull_request_review_comment",
-                    "check_suite",
-                ],
+                "events": ["issue_comment"],
                 "config": {"url": "https://mini.example.ts.net:8443/github-webhook"},
             },
         ) as send:
@@ -147,7 +159,7 @@ class WebhookTests(unittest.TestCase):
         payload = send.call_args.args[2]
         self.assertEqual(
             payload["events"],
-            ["pull_request", "pull_request_review", "pull_request_review_comment", "check_suite"],
+            ["issue_comment"],
         )
         self.assertEqual(payload["config"]["secret"], "private-secret")
         self.assertEqual(result["action"], "created")

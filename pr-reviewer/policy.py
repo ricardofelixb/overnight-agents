@@ -103,6 +103,29 @@ def validate_config(config: dict[str, Any], config_path: Path) -> list[str]:
             isinstance(author, str) and author for author in excluded_authors
         ):
             errors.append(f"{name}: excluded_authors must be login strings")
+        review_commands = merged.get("review_comment_commands", ["/review"])
+        if not isinstance(review_commands, list) or not review_commands or not all(
+            isinstance(command, str)
+            and command
+            and command == command.strip()
+            and "\n" not in command
+            and "\0" not in command
+            for command in review_commands
+        ):
+            errors.append(f"{name}: review_comment_commands must be non-empty single-line strings")
+        author_associations = merged.get(
+            "review_comment_author_associations",
+            ["OWNER", "MEMBER", "COLLABORATOR"],
+        )
+        valid_associations = {"OWNER", "MEMBER", "COLLABORATOR"}
+        if (
+            not isinstance(author_associations, list)
+            or not author_associations
+            or not all(association in valid_associations for association in author_associations)
+        ):
+            errors.append(
+                f"{name}: review_comment_author_associations must contain only trusted associations"
+            )
         if not isinstance(project.get("base_branch"), str) or not project["base_branch"]:
             errors.append(f"{name}: base_branch is required")
         mode = merged.get("mode", "repair")

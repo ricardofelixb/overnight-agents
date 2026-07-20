@@ -26,12 +26,8 @@ from review import ReviewFailure, load_configuration
 
 MAX_BODY_BYTES = 2_000_000
 DELIVERY_RE = re.compile(r"^[A-Za-z0-9-]{1,100}$")
-TRIGGER_ACTIONS = {"opened", "reopened", "ready_for_review", "synchronize"}
-FAILED_CHECK_CONCLUSIONS = {"action_required", "failure", "startup_failure", "timed_out"}
-REVIEW_EVENT_ACTIONS = {
-    "pull_request_review": {"submitted", "edited", "dismissed"},
-    "pull_request_review_comment": {"created", "edited", "deleted"},
-}
+DEFAULT_REVIEW_COMMANDS = ["/review"]
+DEFAULT_REVIEW_AUTHOR_ASSOCIATIONS = ["OWNER", "MEMBER", "COLLABORATOR"]
 
 
 class WebhookFailure(RuntimeError):
@@ -222,74 +218,33 @@ class WebhookApplication:
     def handle(self, event: str, delivery: str, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         if event == "ping":
             return 200, {"status": "pong"}
-        if event == "check_suite":
-            suite = payload.get("check_suite") or {}
-            if payload.get("action") != "completed" or suite.get("conclusion") not in FAILED_CHECK_CONCLUSIONS:
-                return 202, {"status": "ignored", "reason": "check_suite"}
-            repository = ((payload.get("repository") or {}).get("full_name") or "").lower()
-            project = self.projects.get(repository)
-            if project is None:
-                return 202, {"status": "ignored", "reason": "repository"}
-            queued = 0
-            for item in suite.get("pull_requests") or []:
-                number = item.get("number") if isinstance(item, dict) else None
-                if not isinstance(number, int) or number <= 0:
-                    continue
-                job_delivery = f"{delivery}-{number}"
-                job = {
-                    "version": 1,
-                    "delivery": job_delivery,
-                    "received_at": utc_now(),
-                    "project": project["name"],
-                    "repository": project["repository"],
-                    "pr_number": number,
-                    "action": "check_suite_failure",
-                    "force": True,
-                }
-                queued += int(self.queue.enqueue(job_delivery, job))
-            return 202, {"status": "queued" if queued else "duplicate", "count": queued}
-        if event in REVIEW_EVENT_ACTIONS:
-            if payload.get("action") not in REVIEW_EVENT_ACTIONS[event]:
-                return 202, {"status": "ignored", "reason": "action"}
-            repository = ((payload.get("repository") or {}).get("full_name") or "").lower()
-            project = self.projects.get(repository)
-            if project is None:
-                return 202, {"status": "ignored", "reason": "repository"}
-            pull_request = payload.get("pull_request") or {}
-            author = ((pull_request.get("user") or {}).get("login") or "")
-            if author in project.get("excluded_authors", []):
-                return 202, {"status": "ignored", "reason": "author"}
-            number = pull_request.get("number")
-            if not isinstance(number, int) or number <= 0:
-                raise WebhookFailure("pull request number is invalid")
-            job = {
-                "version": 1,
-                "delivery": delivery,
-                "received_at": utc_now(),
-                "project": project["name"],
-                "repository": project["repository"],
-                "pr_number": number,
-                "action": f"{event}:{payload.get('action')}",
-                "force": True,
-            }
-            created = self.queue.enqueue(delivery, job)
-            return 202, {"status": "queued" if created else "duplicate"}
-        if event != "pull_request":
+        if event != "issue_comment":
             return 202, {"status": "ignored", "reason": "event"}
-        action = payload.get("action")
-        if action not in TRIGGER_ACTIONS:
+        if payload.get("action") != "created":
             return 202, {"status": "ignored", "reason": "action"}
         repository = ((payload.get("repository") or {}).get("full_name") or "").lower()
         project = self.projects.get(repository)
         if project is None:
             return 202, {"status": "ignored", "reason": "repository"}
-        pull_request = payload.get("pull_request") or {}
-        author = ((pull_request.get("user") or {}).get("login") or "")
+        issue = payload.get("issue") or {}
+        if not issue.get("pull_request"):
+            return 202, {"status": "ignored", "reason": "not_pull_request"}
+        if issue.get("state") != "open":
+            return 202, {"status": "ignored", "reason": "pull_request_state"}
+        comment = payload.get("comment") or {}
+        commands = project.get("review_comment_commands", DEFAULT_REVIEW_COMMANDS)
+        if str(comment.get("body", "")).strip() not in commands:
+            return 202, {"status": "ignored", "reason": "command"}
+        author = ((comment.get("user") or {}).get("login") or "")
         if author in project.get("excluded_authors", []):
             return 202, {"status": "ignored", "reason": "author"}
-        if pull_request.get("draft") is True:
-            return 202, {"status": "ignored", "reason": "draft"}
-        number = payload.get("number")
+        associations = project.get(
+            "review_comment_author_associations",
+            DEFAULT_REVIEW_AUTHOR_ASSOCIATIONS,
+        )
+        if comment.get("author_association") not in associations:
+            return 202, {"status": "ignored", "reason": "authorization"}
+        number = issue.get("number")
         if not isinstance(number, int) or number <= 0:
             raise WebhookFailure("pull request number is invalid")
         job = {
@@ -299,7 +254,8 @@ class WebhookApplication:
             "project": project["name"],
             "repository": project["repository"],
             "pr_number": number,
-            "action": action,
+            "action": "issue_comment:review_command",
+            "force": True,
         }
         created = self.queue.enqueue(delivery, job)
         return 202, {"status": "queued" if created else "duplicate"}

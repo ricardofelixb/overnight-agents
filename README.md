@@ -1,6 +1,6 @@
 # Automations
 
-Autonomous code-maintenance agents powered by Codex or Claude Code. Scheduled agents create narrowly scoped pull requests; the event-driven PR reviewer independently simplifies, reviews, repairs, validates, and summarizes every eligible human-authored PR.
+Autonomous code-maintenance agents powered by Codex or Claude Code. Scheduled agents create narrowly scoped pull requests; an explicit PR comment command starts the independent simplification, review, repair, validation, and summary lifecycle when a pull request is ready.
 
 ## Automations
 
@@ -35,12 +35,12 @@ Runs use an isolated controller-owned clone, a global and per-project enable swi
 
 ### pr-reviewer
 
-Reviews every eligible human-authored pull request at an exact base/head pair. One Codex orchestrator spawns three specialist sub-agents for behavior/contracts, security/provider boundaries, and an independent simplification/hygiene pass. It reconciles their evidence, reads SHA-bound PR comments, reviews, and GitHub CI logs as untrusted leads, consults allowlisted current provider documentation and promoted official skills, and directly repairs every proven bounded issue in the touched behavioral slice. Repairs may address introduced defects, pre-existing defects, valid PR follow-ups, security hardening, performance, worthwhile code hygiene, or a reproducible validation-gate failure.
+Reviews an eligible pull request at an exact base/head pair after an authorized owner, member, or collaborator posts the exact comment `/review`. One Codex orchestrator spawns three specialist sub-agents for behavior/contracts, security/provider boundaries, and an independent simplification/hygiene pass. It reconciles their evidence, reads SHA-bound PR comments, reviews, and GitHub CI logs as untrusted leads, consults allowlisted current provider documentation and promoted official skills, and directly repairs every proven bounded issue in the touched behavioral slice. Repairs may address introduced defects, pre-existing defects, valid PR follow-ups, security hardening, performance, worthwhile code hygiene, or a reproducible validation-gate failure.
 
-GitHub webhooks are the primary trigger for PR open, reopen, ready-for-review, synchronize, human review-feedback, and failed check-suite events. The loopback-only receiver verifies `X-Hub-Signature-256`, durably deduplicates deliveries, and processes reviews sequentially outside the HTTP request. Dependabot is excluded. A 30-minute reconciliation sweep remains only as recovery for deliveries missed while the machine was offline.
+The GitHub webhook subscribes only to `issue_comment`. The loopback-only receiver verifies `X-Hub-Signature-256`, requires a newly created comment on an open PR, authorizes the signed GitHub `OWNER`, `MEMBER`, or `COLLABORATOR` association, matches `/review` exactly, durably deduplicates the delivery, and processes reviews sequentially outside the HTTP request. Pushes, PR lifecycle events, CI events, reviews, ordinary comments, edited commands, comments on non-PR issues, and unauthorized commands never start a cycle. Dependabot remains excluded by the PR policy.
 
 ```text
-GitHub event
+Authorized `/review` PR comment
   -> signed loopback webhook receiver
   -> durable, delivery-ID-deduplicated queue
   -> exact-SHA PR controller
@@ -55,19 +55,19 @@ Provider routing uses progressive disclosure. The controller detects broad candi
 
 The orchestrator may edit but cannot commit, push, comment on GitHub, approve, merge, or delete branches. After edits it uses a fresh verifier sub-agent. A deterministic controller owns the exact-SHA workspace, checks the reported working-tree files, runs one definitive local validation after both agent phases, and maintains one idempotent PR comment explaining either “safe to merge,” “fixed and safe to merge,” or the exact blocking decision. The user remains the final merger.
 
-Reviewer workspaces are disposable controller-owned clones. First-run and interrupted `--no-checkout` clones are checked out before cleanliness is evaluated; contaminated or incomplete workspaces are moved to an auditable quarantine and replaced atomically. Successful or blocked results are cached by PR head and update timestamp so the recovery schedule does not repeat unchanged reviews.
+Reviewer workspaces are disposable controller-owned clones. First-run and interrupted `--no-checkout` clones are checked out before cleanliness is evaluated; contaminated or incomplete workspaces are moved to an auditable quarantine and replaced atomically. Successful or blocked results are cached by PR head and update timestamp for ordinary controller safety; every new authorized `/review` delivery intentionally requests a fresh cycle, even on the same SHA.
 
 Projects may define non-secret validation resource settings such as `NODE_OPTIONS` in `validation_environment`. Credential-like and critical shell variables are rejected, and repository commands never inherit arbitrary automation secrets.
 
-The reviewer defaults to `repair`. `observe` remains available for a read-only dry run, while the local exac deployment uses `repair`: verified changes are pushed to the PR branch and manual merge remains in GitHub. The scheduled simplifier does not invoke the reviewer directly; publishing its PR produces the same webhook event as a human PR, avoiding duplicate expensive reviews.
+The reviewer defaults to `repair`. `observe` remains available for a read-only dry run, while the local exac deployment uses `repair`: verified changes are pushed to the PR branch and manual merge remains in GitHub. Neither human pushes nor scheduled simplifier PR publication invokes the reviewer automatically; comment `/review` once the PR is ready.
 
-A semantic blocker sends one deduplicated outbound Telegram notification with the decision needed. Delivery uses no webhook or inbound listener. Failed sends remain in a durable outbox and are retried by the recovery schedule; notification failure never changes the PR review result.
+A semantic blocker sends one deduplicated outbound Telegram notification with the decision needed. Delivery uses no webhook or inbound listener. Failed sends remain in a durable outbox and are retried by a notification-only schedule; notification failure never changes the PR review result.
 
 ### pr-simplifier skill
 
 `pr-simplifier/skills/simplify-pr-implementation` is the default first-pass skill for eligible human PRs. It binds work to exact base/head SHAs and uses three read-only specialists for reuse, maintainability, and efficiency; the orchestrator may retain only behavior-preserving improvements that pass an independent verifier. It is PR-slice scoped rather than folder scoped, and it does not certify correctness, recommend merging, or replace `pr-reviewer`.
 
-The existing webhook queue owns one atomic lifecycle: human PR -> dependency setup -> PR simplifier -> local simplification checkpoint -> ordinary PR reviewer in the same workspace -> one definitive `pnpm run validate` -> one final branch push and one idempotent comment. Nothing from the simplifier is pushed or commented independently. Before the single lease-protected push, the controller verifies that the remote PR branch still equals the original GitHub head; the lease makes that comparison atomic, so a concurrent human push aborts the publication instead of being overwritten. Exact-head state prevents the final controller-authored push from recursively starting another simplification pass. A later human push creates a new head and receives a fresh pass. Scheduled `code-simplify/*` PRs already received their simplification pass and proceed directly to `pr-reviewer`.
+The webhook queue owns one atomic lifecycle after `/review`: dependency setup -> PR simplifier -> local simplification checkpoint -> ordinary PR reviewer in the same workspace -> one definitive `pnpm run validate` -> one final branch push and one idempotent comment. Nothing from the simplifier is pushed or commented independently. Before the single lease-protected push, the controller verifies that the remote PR branch still equals the original GitHub head; the lease makes that comparison atomic, so a concurrent human push aborts publication instead of being overwritten. Controller-authored pushes do not recurse because pushes are not subscribed events. A later human push waits for another explicit `/review`. Scheduled `code-simplify/*` PRs already received their simplification pass and proceed directly to `pr-reviewer` after the command.
 
 #### How the checklist works
 
@@ -138,13 +138,13 @@ Add `simplification.md` to `.gitignore`. Each run picks the next unchecked folde
 
    `pr-simplifier/install.sh` remains available when only the reusable simplification skill is needed.
 
-8. On macOS, install the launchd services for the persistent webhook receiver, recovery sweep, and weekly provider-context refresh:
+8. On macOS, install the launchd services for the persistent webhook receiver, outbound-notification retry, and weekly provider-context refresh:
 
    ```bash
    ./pr-reviewer/install_launchd.py
    ```
 
-   `install-cron.sh` remains available for the recovery and refresh schedules on systems using cron; it does not supervise the persistent HTTP receiver.
+   `install-cron.sh` remains available for notification retry and context refresh on systems using cron; it does not supervise the persistent HTTP receiver or start reviews.
 
 9. Expose only the loopback receiver through a dedicated public Tailscale Funnel:
 
@@ -161,7 +161,7 @@ Add `simplification.md` to `.gitignore`. Each run picks the next unchecked folde
      --env ./pr-reviewer/.env
    ```
 
-   The hook subscribes to `pull_request`, `pull_request_review`, `pull_request_review_comment`, and `check_suite`. Human feedback or a failed check forces a new exact-SHA repair review even when that head was reviewed previously.
+   The hook subscribes only to `issue_comment`. Post the exact comment `/review` on an open PR when you want one full cycle. A new authorized command intentionally starts a new exact-SHA cycle even if the same head was reviewed previously.
 
 The weekly refresh uses isolated temporary clones. It promotes audited provider skills globally and runs `npx convex ai-files update` for each enabled Convex project, publishing a hashed guidance snapshot without modifying the configured source checkout.
 
@@ -171,7 +171,7 @@ The weekly refresh uses isolated temporary clones. It promotes audited provider 
 - [GitHub CLI](https://cli.github.com/) (`gh`)
 - [Codex CLI](https://developers.openai.com/codex/cli/) (`codex`)
 - [Tailscale](https://tailscale.com/) with Funnel enabled for inbound GitHub webhooks
-- macOS with launchd for the persistent webhook receiver; cron remains supported for scheduled recovery/refresh jobs
+- macOS with launchd for the persistent webhook receiver; cron remains supported for notification retry and provider-context refresh
 
 ## Configuration
 
@@ -219,13 +219,15 @@ The marker becomes complete only when the source refactor is ready and the contr
   "base_branch": "main",
   "allowed_head_patterns": ["*"],
   "excluded_authors": ["dependabot[bot]", "app/dependabot"],
+  "review_comment_commands": ["/review"],
+  "review_comment_author_associations": ["OWNER", "MEMBER", "COLLABORATOR"],
   "allow_forks": false,
   "validation_commands": [["pnpm", "run", "validate"]],
   "mode": "repair"
 }
 ```
 
-Draft PRs wait for `ready_for_review`. Cross-repository PRs remain blocked unless explicitly enabled, because a repair push must never target an untrusted fork. Provider skills and documentation are selected on demand from signed/fresh manifests rather than loaded eagerly.
+Draft PRs remain ineligible even if someone comments `/review`. Cross-repository PRs remain blocked unless explicitly enabled, because a repair push must never target an untrusted fork. Provider skills and documentation are selected on demand from signed/fresh manifests rather than loaded eagerly.
 
 ### Validation self-healing
 
@@ -273,8 +275,8 @@ If the failure is external, transient, ambiguous, or unsafe to repair, the revie
   --pr 123 \
   --apply
 
-# Run the missed-delivery recovery sweep.
-./pr-reviewer/reconcile.py --config ./pr-reviewer/config.json --apply
+# Retry pending outbound notifications; this never starts a review.
+./pr-reviewer/reconcile.py --config ./pr-reviewer/config.json
 ```
 
 Do not use `--force` for ordinary retries. It intentionally bypasses the reviewed-head cache and is reserved for new review feedback or a failed check on the same SHA.
@@ -318,7 +320,7 @@ tailscale funnel --https 8443 off
 - `codebase-organizer/state/pending/` — active organizer PR/item state
 - `pr-reviewer/logs/webhook.log` — receiver health and HTTP status lines; request bodies and signatures are never logged
 - `pr-reviewer/logs/webhook-worker.log` — queued review controller output
-- `pr-reviewer/logs/reconcile.log` — recovery sweep output
+- `pr-reviewer/logs/reconcile.log` — outbound-notification retry output
 - `pr-reviewer/logs/context-refresh.log` — weekly provider-skill, documentation, and Convex AI-files refresh
 - `pr-reviewer/state/webhook-queue/` — pending and in-progress signed deliveries
 - `pr-reviewer/state/webhook-deliveries/` — bounded delivery receipts used for deduplication

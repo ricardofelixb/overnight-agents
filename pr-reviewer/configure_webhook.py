@@ -113,12 +113,7 @@ def configure(repository: str, public_url: str, secret: str) -> dict[str, Any]:
     payload = {
         "name": "web",
         "active": True,
-        "events": [
-            "pull_request",
-            "pull_request_review",
-            "pull_request_review_comment",
-            "check_suite",
-        ],
+        "events": ["issue_comment"],
         "config": {
             "url": public_url,
             "content_type": "json",

@@ -26,6 +26,8 @@
     "simplify_human_prs": true,
     "simplification_skip_head_patterns": ["code-simplify/*", "code-organize/*"],
     "telegram_notifications_enabled": true,
+    "review_comment_commands": ["/review"],
+    "review_comment_author_associations": ["OWNER", "MEMBER", "COLLABORATOR"],
     "validation_environment": {},
     "protected_policy_patterns": [
       "AGENTS.md",

@@ -130,9 +130,14 @@ def validate_config(config: dict[str, Any], config_path: Path) -> list[str]:
             "validation_attempts": (1, 3),
             "validation_correction_cycles": (1, 3),
             "simplification_correction_cycles": (1, 3),
+            "result_contract_correction_cycles": (0, 2),
         }
         for field, (minimum, maximum) in numeric_ranges.items():
-            value = merged.get(field, 2 if field == "simplification_correction_cycles" else None)
+            defaults = {
+                "simplification_correction_cycles": 2,
+                "result_contract_correction_cycles": 1,
+            }
+            value = merged.get(field, defaults.get(field))
             if not isinstance(value, int) or not minimum <= value <= maximum:
                 errors.append(f"{name}: {field} must be between {minimum} and {maximum}")
     for field in (

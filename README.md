@@ -56,7 +56,7 @@ A semantic blocker sends one deduplicated outbound Telegram notification with th
 
 `pr-simplifier/skills/simplify-pr-implementation` is the default first-pass skill for eligible human PRs. It binds work to exact base/head SHAs and uses three read-only specialists for reuse, maintainability, and efficiency; the orchestrator may retain only behavior-preserving improvements that pass an independent verifier. It is PR-slice scoped rather than folder scoped, and it does not certify correctness, recommend merging, or replace `pr-reviewer`.
 
-The existing webhook queue owns the complete lifecycle: human PR -> PR simplifier -> full validation and optional simplification commit -> ordinary PR reviewer -> final idempotent comment. Exact-head state prevents controller-authored pushes from recursively starting another simplification pass. A later human push creates a new head and receives a fresh pass. Scheduled `code-simplify/*` PRs already received their simplification pass and proceed directly to `pr-reviewer`.
+The existing webhook queue owns one atomic lifecycle: human PR -> PR simplifier -> full validation and local simplification checkpoint -> ordinary PR reviewer in the same workspace -> full validation -> one final branch push and one idempotent comment. Nothing from the simplifier is pushed or commented independently. Before the single lease-protected push, the controller verifies that the remote PR branch still equals the original GitHub head; the lease makes that comparison atomic, so a concurrent human push aborts the publication instead of being overwritten. Exact-head state prevents the final controller-authored push from recursively starting another simplification pass. A later human push creates a new head and receives a fresh pass. Scheduled `code-simplify/*` PRs already received their simplification pass and proceed directly to `pr-reviewer`.
 
 #### How the checklist works
 
@@ -200,8 +200,10 @@ The initial validation gate is evidence, not a pre-review dismissal:
 2. Include failed GitHub Actions step logs when available.
 3. Ask the specialists and orchestrator to reproduce and repair a bounded code cause.
 4. Never modify protected CI policy, weaken tests, or loosen types/lint to obtain green status.
-5. If a reviewer-authored repair fails validation, feed the exact failure back into up to two focused correction cycles without repeating the full specialist review.
-6. Require a fresh verifier and the complete configured validation command to pass before pushing a repair or posting a clean recommendation.
+5. Retry a failed complete gate according to `validation_attempts` before spending another agent turn on a potentially transient failure.
+6. If the reviewer returns schema-valid but semantically contradictory JSON, run one bounded result-only correction without repeating specialist review; verifier status describes retained edits, not the separate controller/CI gate.
+7. If a reviewer-authored repair still fails validation, feed the exact failure back into up to two focused correction cycles without repeating the full specialist review.
+8. Require a fresh verifier and the complete configured validation command to pass before pushing a repair or posting a clean recommendation.
 
 If the failure is external, transient, ambiguous, or unsafe to repair, the reviewer reports the precise blocker instead of guessing.
 

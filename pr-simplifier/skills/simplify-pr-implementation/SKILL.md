@@ -25,7 +25,7 @@ Read [simplification-protocol.md](references/simplification-protocol.md) complet
 7. Run focused checks after editing. Spawn one fresh read-only verifier with the raw original PR diff and final working-tree diff. Revert or correct any change whose behavioral equivalence is not proven.
 8. Report every inspected repository file in `reviewed_files`; include every supplied PR changed file.
 
-Never commit, push, comment, approve, merge, delete branches, alter Git configuration, or expose credentials. A deterministic controller owns those actions and full validation.
+Never commit, push, comment, approve, merge, delete branches, alter Git configuration, or expose credentials. A deterministic controller owns those actions and full validation. The controller may create an unpushed local checkpoint from the verified working tree so the downstream reviewer can inspect one immutable SHA in the same workspace; this skill never creates that checkpoint itself.
 
 Return only one JSON object conforming to [orchestrator-result.schema.json](references/orchestrator-result.schema.json).
 

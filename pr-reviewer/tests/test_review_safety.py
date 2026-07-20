@@ -16,11 +16,15 @@ sys.path.insert(0, str(ROOT))
 
 from review import (
     ReviewFailure,
+    ResultContractFailure,
     Runner,
+    bind_validation_evidence_to_checkpoint,
     capture_ai_files_snapshot,
     capture_ci_context,
     capture_review_context,
+    carry_simplification_state_to_head,
     collect_project_commands,
+    commit_simplification,
     correction_prompt,
     current_simplification_state,
     fetch_pr_at_head,
@@ -28,9 +32,12 @@ from review import (
     legacy_head_was_reviewed,
     orchestrator_prompt,
     prepare_workspace,
+    push_final_head,
     record_simplification_state,
     record_review_state,
+    result_contract_correction_prompt,
     review_is_current,
+    run_orchestrator,
     run_project_commands,
     run_simplification_phase,
     simplification_correction_prompt,
@@ -39,8 +46,10 @@ from review import (
     tree_hash,
     upsert_review_comment,
     validate_docs_manifest,
+    validate_orchestrator_result,
     validate_repair_with_corrections,
     validate_skill_lock,
+    workspace_fingerprint,
     write_validation_evidence,
 )
 
@@ -85,6 +94,20 @@ class ReviewSafetyTests(unittest.TestCase):
             prepare_workspace(runner, workspace, source, "trusted/example", 1, "main", head, head)
             self.assertEqual(self.git("rev-parse", "HEAD", cwd=workspace), head)
             self.assertEqual(self.git("status", "--porcelain", cwd=workspace), "")
+
+    def test_workspace_fingerprint_refuses_symlink_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            target = workspace / "target.txt"
+            target.write_text("sensitive\n")
+            (workspace / "link.txt").symlink_to(target)
+            runner = mock.Mock()
+            runner.run.side_effect = [
+                subprocess.CompletedProcess([], 0, "link.txt\n", ""),
+                subprocess.CompletedProcess([], 0, "", ""),
+            ]
+            with self.assertRaisesRegex(ReviewFailure, "symlink"):
+                workspace_fingerprint(runner, workspace)
 
     def test_incomplete_no_checkout_workspace_is_quarantined_and_reprovisioned(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -174,6 +197,8 @@ class ReviewSafetyTests(unittest.TestCase):
         self.assertIn("generated guidelines", prompt)
         self.assertIn(str(root / "simplification.json"), prompt)
         self.assertIn("untrusted lead", prompt)
+        self.assertIn("verification.verdict", prompt)
+        self.assertIn("fresh independent verifier", prompt)
 
     def test_correction_prompt_resumes_without_restarting_specialists(self) -> None:
         root = Path("/tmp/reviewer-test")
@@ -189,6 +214,99 @@ class ReviewSafetyTests(unittest.TestCase):
         self.assertIn(str(root / "result.json"), prompt)
         self.assertIn(str(root / "validation.json"), prompt)
         self.assertIn("spawn one fresh read-only verifier", prompt)
+
+    def test_result_contract_correction_is_bounded_and_result_only(self) -> None:
+        root = Path("/tmp/reviewer-test")
+        prompt = result_contract_correction_prompt(
+            skill_path=root / "skill",
+            pr={"url": "https://example.test/pr/1", "number": 1, "baseRefOid": "a" * 40, "headRefOid": "b" * 40},
+            changed_files_path=root / "changed.txt",
+            invalid_result=root / "invalid.json",
+            contract_errors=root / "errors.txt",
+        )
+        self.assertIn("bounded result-contract correction, not a new review", prompt)
+        self.assertIn("Do not restart specialist reviews", prompt)
+        self.assertIn("verification.verdict", prompt)
+        self.assertIn(str(root / "invalid.json"), prompt)
+        self.assertIn(str(root / "errors.txt"), prompt)
+
+    def test_semantic_result_contract_failure_is_typed(self) -> None:
+        runner = mock.Mock()
+        runner.run.return_value = subprocess.CompletedProcess(
+            [],
+            1,
+            "repaired_blocked result requires passed verification\n",
+            "",
+        )
+        with self.assertRaisesRegex(ResultContractFailure, "passed verification"):
+            validate_orchestrator_result(
+                runner,
+                {"skill_path": "/tmp/skill"},
+                Path("/tmp/workspace"),
+                {"baseRefOid": "a" * 40, "headRefOid": "b" * 40},
+                Path("/tmp/result.json"),
+                Path("/tmp/changed.txt"),
+                Path("/tmp/docs.json"),
+                Path("/tmp/skills.json"),
+            )
+        self.assertFalse(runner.run.call_args.kwargs["check"])
+
+    def test_orchestrator_self_corrects_one_semantic_result_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            runner = mock.Mock()
+            runner.log = mock.Mock()
+
+            def write_result(*_: object, **kwargs: object) -> None:
+                output = kwargs.get("output")
+                if not isinstance(output, Path):
+                    output = _[4]
+                assert isinstance(output, Path)
+                output.write_text(json.dumps({"source": output.name}))
+
+            with (
+                mock.patch("review.run_codex_result", side_effect=write_result) as run_codex,
+                mock.patch(
+                    "review.validate_orchestrator_result",
+                    side_effect=[
+                        ResultContractFailure("verifier verdict mismatch"),
+                        {"status": "repaired"},
+                    ],
+                ) as validate,
+            ):
+                result = run_orchestrator(
+                    runner,
+                    {
+                        "skill_path": str(root / "skill"),
+                        "result_contract_correction_cycles": 1,
+                    },
+                    root / "workspace",
+                    {
+                        "url": "https://example.test/pr/1",
+                        "number": 1,
+                        "baseRefOid": "a" * 40,
+                        "headRefOid": "b" * 40,
+                    },
+                    root,
+                    root / "changed.txt",
+                    root / "docs.json",
+                    root / "skills.json",
+                    root / "review.json",
+                    root / "ci.json",
+                    root / "validation.json",
+                    None,
+                    None,
+                    True,
+                )
+            self.assertEqual(result, {"status": "repaired"})
+            self.assertEqual(run_codex.call_count, 2)
+            self.assertEqual(validate.call_count, 2)
+            canonical = json.loads((root / "orchestrator-result.json").read_text())
+            self.assertEqual(
+                canonical["source"],
+                "orchestrator-result-contract-correction-1.json",
+            )
+            runner.log.assert_called_once()
 
     def test_simplification_prompts_are_exact_sha_and_corrections_do_not_restart(self) -> None:
         root = Path("/tmp/reviewer-test")
@@ -250,6 +368,130 @@ class ReviewSafetyTests(unittest.TestCase):
             self.assertIsNone(
                 current_simplification_state(root, "example", pr | {"headRefOid": "c" * 40})
             )
+            carried = carry_simplification_state_to_head(
+                root,
+                "example",
+                pr | {"headRefOid": "c" * 40},
+                state,
+            )
+            self.assertEqual(carried["reason"], "simplification_commit")
+            self.assertEqual(carried["head_sha"], "c" * 40)
+            self.assertEqual(carried["simplification_head_sha"], "b" * 40)
+            self.assertEqual(carried["finalized_by"], "reviewer_output")
+
+    def test_simplification_checkpoint_stays_local_until_atomic_push(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            origin, workspace, _ = self.repository_fixture(root)
+            self.git("checkout", "-b", "feature/atomic", cwd=workspace)
+            (workspace / "example.txt").write_text("human change\n")
+            self.git("add", "example.txt", cwd=workspace)
+            self.git("commit", "-m", "human change", cwd=workspace)
+            self.git("push", "-u", "origin", "feature/atomic", cwd=workspace)
+            remote_input = self.git("rev-parse", "HEAD", cwd=workspace)
+            (workspace / "example.txt").write_text("simplified change\n")
+            runner = Runner(root / "atomic.log")
+            local_head = commit_simplification(
+                runner,
+                workspace,
+                {"number": 7, "headRefName": "feature/atomic"},
+            )
+            remote_before = self.git(
+                "--git-dir", str(origin), "rev-parse", "refs/heads/feature/atomic"
+            )
+            self.assertEqual(remote_before, remote_input)
+            self.assertNotEqual(local_head, remote_input)
+            evidence_path = root / "validation-evidence.json"
+            evidence_path.write_text(json.dumps({"head_sha": remote_input, "status": "passed"}))
+            bound_path = bind_validation_evidence_to_checkpoint(
+                runner,
+                workspace,
+                evidence_path,
+                original_head=remote_input,
+                checkpoint_head=local_head,
+                validated_fingerprint={
+                    "example.txt": hashlib.sha256((workspace / "example.txt").read_bytes()).hexdigest()
+                },
+                output=root / "bound-validation-evidence.json",
+            )
+            bound = json.loads(bound_path.read_text())
+            self.assertEqual(bound["source_head_sha"], remote_input)
+            self.assertEqual(bound["head_sha"], local_head)
+            self.assertEqual(
+                bound["checkpoint_tree_sha"],
+                self.git("rev-parse", f"{local_head}^{{tree}}", cwd=workspace),
+            )
+            pushed = push_final_head(
+                runner,
+                workspace,
+                {"headRefName": "feature/atomic"},
+                expected_remote_head=remote_input,
+            )
+            self.assertEqual(pushed, local_head)
+            self.assertIn(
+                f"--force-with-lease=refs/heads/feature/atomic:{remote_input}",
+                (root / "atomic.log").read_text(),
+            )
+            self.assertEqual(
+                self.git("--git-dir", str(origin), "rev-parse", "refs/heads/feature/atomic"),
+                local_head,
+            )
+
+    def test_atomic_push_refuses_a_concurrent_human_update(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            origin, workspace, _ = self.repository_fixture(root)
+            self.git("checkout", "-b", "feature/race", cwd=workspace)
+            (workspace / "example.txt").write_text("human change\n")
+            self.git("add", "example.txt", cwd=workspace)
+            self.git("commit", "-m", "human change", cwd=workspace)
+            self.git("push", "-u", "origin", "feature/race", cwd=workspace)
+            remote_input = self.git("rev-parse", "HEAD", cwd=workspace)
+            (workspace / "example.txt").write_text("local automation change\n")
+            self.git("add", "example.txt", cwd=workspace)
+            self.git("commit", "-m", "local automation", cwd=workspace)
+
+            contender = root / "contender"
+            self.git("clone", str(origin), str(contender))
+            self.git("config", "user.email", "human@example.test", cwd=contender)
+            self.git("config", "user.name", "Human", cwd=contender)
+            self.git("checkout", "feature/race", cwd=contender)
+            (contender / "concurrent.txt").write_text("new human work\n")
+            self.git("add", "concurrent.txt", cwd=contender)
+            self.git("commit", "-m", "concurrent human push", cwd=contender)
+            self.git("push", "origin", "feature/race", cwd=contender)
+            concurrent_head = self.git("rev-parse", "HEAD", cwd=contender)
+
+            with self.assertRaisesRegex(ReviewFailure, "refusing to push"):
+                push_final_head(
+                    Runner(root / "race.log"),
+                    workspace,
+                    {"headRefName": "feature/race"},
+                    expected_remote_head=remote_input,
+                )
+            self.assertEqual(
+                self.git("--git-dir", str(origin), "rev-parse", "refs/heads/feature/race"),
+                concurrent_head,
+            )
+
+    def test_atomic_push_requires_a_descendant_of_the_original_head(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _, workspace, _ = self.repository_fixture(root)
+            self.git("checkout", "-b", "feature/descendant", cwd=workspace)
+            (workspace / "feature.txt").write_text("human change\n")
+            self.git("add", "feature.txt", cwd=workspace)
+            self.git("commit", "-m", "human change", cwd=workspace)
+            self.git("push", "-u", "origin", "feature/descendant", cwd=workspace)
+            remote_input = self.git("rev-parse", "HEAD", cwd=workspace)
+            self.git("checkout", "main", cwd=workspace)
+            with self.assertRaisesRegex(ReviewFailure, "not a descendant"):
+                push_final_head(
+                    Runner(root / "descendant.log"),
+                    workspace,
+                    {"headRefName": "feature/descendant"},
+                    expected_remote_head=remote_input,
+                )
 
     def test_clean_human_head_runs_simplifier_once(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -293,7 +535,7 @@ class ReviewSafetyTests(unittest.TestCase):
                 "review.run_simplifier_orchestrator",
                 return_value=(result, root / "result.json"),
             ) as orchestrate:
-                current, state = run_simplification_phase(
+                current, state, evidence = run_simplification_phase(
                     runner,
                     {"state_root": str(root / "state")},
                     "example",
@@ -305,7 +547,8 @@ class ReviewSafetyTests(unittest.TestCase):
                 )
                 self.assertEqual(current, pr)
                 self.assertEqual(state["status"], "clean")
-                second, second_state = run_simplification_phase(
+                self.assertEqual(evidence, root / "evidence.json")
+                second, second_state, second_evidence = run_simplification_phase(
                     runner,
                     {"state_root": str(root / "state")},
                     "example",
@@ -317,6 +560,7 @@ class ReviewSafetyTests(unittest.TestCase):
                 )
                 self.assertEqual(second, pr)
                 self.assertEqual(second_state, state)
+                self.assertIsNone(second_evidence)
                 orchestrate.assert_called_once()
 
     def test_convex_ai_files_snapshot_is_fresh_and_hash_verified(self) -> None:
@@ -595,7 +839,7 @@ class ReviewSafetyTests(unittest.TestCase):
         ):
             result = validate_repair_with_corrections(
                 runner,
-                {"validation_correction_cycles": 2},
+                {"validation_correction_cycles": 2, "validation_attempts": 2},
                 Path("/tmp/workspace"),
                 {"baseRefOid": "a" * 40, "headRefOid": "b" * 40},
                 Path("/tmp/run"),
@@ -610,7 +854,7 @@ class ReviewSafetyTests(unittest.TestCase):
             )
         self.assertIs(result, corrected)
         self.assertEqual(collect.call_count, 2)
-        self.assertTrue(all(call.kwargs["attempts"] == 1 for call in collect.call_args_list))
+        self.assertTrue(all(call.kwargs["attempts"] == 2 for call in collect.call_args_list))
         correct.assert_called_once()
         runner.log.assert_called_once_with(
             "Post-repair validation failed; starting focused correction cycle 1/2"
@@ -670,11 +914,20 @@ class ReviewSafetyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             path = capture_review_context(
-                GraphqlRunner(), {"max_review_context_bytes": 10000}, "trusted/example", pr, root, 0, "controller"
+                GraphqlRunner(),
+                {"max_review_context_bytes": 10000},
+                "trusted/example",
+                pr,
+                root,
+                0,
+                "controller",
+                github_head_sha="c" * 40,
             )
             context = json.loads(path.read_text())
             self.assertEqual(context["base_sha"], "a" * 40)
             self.assertEqual(context["head_sha"], "b" * 40)
+            self.assertEqual(context["reviewed_head_sha"], "b" * 40)
+            self.assertEqual(context["github_head_sha"], "c" * 40)
             self.assertEqual([item["body"] for item in context["comments"]], ["Please verify the empty state"])
             with self.assertRaisesRegex(ReviewFailure, "evidence limit"):
                 capture_review_context(
@@ -710,9 +963,12 @@ class ReviewSafetyTests(unittest.TestCase):
                 "trusted/example",
                 pr,
                 root,
+                github_head_sha="c" * 40,
             )
             context = json.loads(path.read_text())
             self.assertEqual(context["head_sha"], "b" * 40)
+            self.assertEqual(context["reviewed_head_sha"], "b" * 40)
+            self.assertEqual(context["github_head_sha"], "c" * 40)
             self.assertIn("Type error", context["failed_run_logs"]["123"])
 
             unavailable = subprocess.CompletedProcess(["gh"], 1, "no checks reported", "")

@@ -54,7 +54,7 @@ Each report must include inspected files, evidence, expected benefit, behavior-p
 5. Give a fresh verifier the raw base/head diff, final working-tree diff, relevant rules, and focused test evidence. Do not disclose specialist conclusions or intended improvements.
 6. Require the verifier to pass for any retained edit. Revert an edit completely if its equivalence is uncertain.
 
-Full repository validation remains the controller's responsibility. When it rejects a simplification, use the exact failure artifact in a bounded correction cycle: preserve independently proven improvements, repair or revert the failing edit, and run a fresh verifier without rerunning the three specialist reviews. Never loosen a gate to make it green. The controller bounds correction attempts and publishes no simplification commit until the complete gate passes.
+Full repository validation remains the controller's responsibility. When it rejects a simplification, use the exact failure artifact in a bounded correction cycle: preserve independently proven improvements, repair or revert the failing edit, and run a fresh verifier without rerunning the three specialist reviews. Never loosen a gate to make it green. The controller bounds correction attempts, may create a local immutable checkpoint for downstream review, and publishes nothing until both phases finish.
 
 ## Result discipline
 

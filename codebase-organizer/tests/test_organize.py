@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 MODULE_PATH = Path(__file__).resolve().parent.parent / "organize.py"
@@ -17,6 +19,16 @@ SPEC.loader.exec_module(MODULE)
 
 
 class OrganizerTests(unittest.TestCase):
+    def git(self, *arguments: str, cwd: Path | None = None) -> str:
+        return subprocess.run(
+            ["git", *arguments],
+            cwd=cwd,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=True,
+        ).stdout.strip()
+
     def valid_config(self) -> dict[str, object]:
         return {
             "enabled": True,
@@ -105,6 +117,114 @@ class OrganizerTests(unittest.TestCase):
             path.write_text(json.dumps([]))
             with self.assertRaisesRegex(MODULE.OrganizerFailure, "JSON object"):
                 MODULE.load_config(path)
+
+    def test_execute_project_publishes_one_validated_slice_end_to_end(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            origin = root / "origin.git"
+            seed = root / "seed"
+            source = root / "source"
+            environment = root / "private" / "example.env.local"
+            checklist = root / "state" / "example.md"
+            self.git("init", "--bare", str(origin))
+            self.git("init", "-b", "main", str(seed))
+            self.git("config", "user.email", "organizer@example.test", cwd=seed)
+            self.git("config", "user.name", "Organizer Test", cwd=seed)
+            (seed / ".gitignore").write_text(".env.local\n")
+            (seed / "existing.txt").write_text("behavior\n")
+            self.git("add", ".gitignore", "existing.txt", cwd=seed)
+            self.git("commit", "-m", "initial", cwd=seed)
+            self.git("remote", "add", "origin", str(origin), cwd=seed)
+            self.git("push", "-u", "origin", "main", cwd=seed)
+            self.git("symbolic-ref", "HEAD", "refs/heads/main", cwd=origin)
+            self.git("clone", str(origin), str(source))
+            environment.parent.mkdir()
+            environment.write_text("EXAMPLE=value\n")
+            environment.chmod(0o600)
+            checklist.parent.mkdir()
+            checklist.write_text(
+                "# Checklist\n\n- [ ] **sales** — Align sales\n"
+                "  - Preserve behavior.\n"
+            )
+            project = {
+                "name": "example",
+                "enabled": True,
+                "source_path": str(source),
+                "repository": "owner/example",
+                "base_branch": "main",
+                "environment_file": str(environment),
+                "checklist_file": str(checklist),
+                "validation_commands": [["true"]],
+            }
+            config = {
+                "provider": "codex",
+                "workspace_root": str(root / "workspaces"),
+                "validation_correction_cycles": 0,
+            }
+
+            def fake_agent(
+                _config: dict[str, object],
+                workspace: Path,
+                _prompt: str,
+                _stream: object,
+            ) -> subprocess.CompletedProcess[str]:
+                self.git(
+                    "config", "user.email", "organizer@example.test", cwd=workspace
+                )
+                self.git("config", "user.name", "Organizer Test", cwd=workspace)
+                (workspace / "organized.txt").write_text("same behavior\n")
+                checklist.write_text(
+                    checklist.read_text().replace("- [ ] **sales**", "- [x] **sales**")
+                )
+                return subprocess.CompletedProcess([], 0, "", "")
+
+            original_run = MODULE.run
+
+            def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+                if command[:3] == ["gh", "pr", "create"]:
+                    return subprocess.CompletedProcess(
+                        command,
+                        0,
+                        "https://github.com/owner/example/pull/17\n",
+                        "",
+                    )
+                return original_run(command, **kwargs)
+
+            logs = root / "controller.log"
+            fake_script_dir = root / "organizer"
+            with logs.open("w") as stream, mock.patch.object(
+                MODULE, "SCRIPT_DIR", fake_script_dir
+            ), mock.patch.object(
+                MODULE, "active_organizer_pr", return_value=None
+            ), mock.patch.object(
+                MODULE, "install_dependencies", return_value=None
+            ), mock.patch.object(
+                MODULE, "run_agent", side_effect=fake_agent
+            ), mock.patch.object(
+                MODULE,
+                "run_validation",
+                return_value=subprocess.CompletedProcess([], 0, "green", ""),
+            ), mock.patch.object(MODULE, "run", side_effect=fake_run):
+                message = MODULE.execute_project(
+                    config, project, apply=True, stream=stream
+                )
+
+            self.assertEqual(
+                message, "example: created https://github.com/owner/example/pull/17"
+            )
+            self.assertIn("- [x] **sales**", checklist.read_text())
+            remote_branch = self.git(
+                "for-each-ref",
+                "--format=%(refname:short)",
+                "refs/heads/code-organize/",
+                cwd=origin,
+            )
+            self.assertTrue(remote_branch.startswith("code-organize/sales-"))
+            pending = json.loads(
+                (fake_script_dir / "state" / "pending" / "example.json").read_text()
+            )
+            self.assertEqual(pending["pull_request"], 17)
+            self.assertEqual(pending["item_id"], "sales")
 
 
 if __name__ == "__main__":

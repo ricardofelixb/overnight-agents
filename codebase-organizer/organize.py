@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import hashlib
 import importlib.util
 import json
 import os
@@ -111,9 +112,6 @@ def validate_config(config: dict[str, Any]) -> None:
                 raise OrganizerFailure(
                     f"project {name} validation commands must be non-empty string arrays"
                 )
-    cycles = config.get("validation_correction_cycles", 2)
-    if not isinstance(cycles, int) or not 0 <= cycles <= 2:
-        raise OrganizerFailure("validation_correction_cycles must be from 0 to 2")
 
 
 def run(
@@ -311,6 +309,7 @@ def agent_prompt(
     branch: str,
     item: ChecklistItem,
     resuming: bool,
+    validation_commands: list[list[str]],
 ) -> str:
     resume = (
         "\nThis is a resumed interrupted run. Inspect and continue the existing working-tree "
@@ -325,11 +324,17 @@ Execute exactly this approved organization checklist item:
 
 {item.block}
 
-The deterministic controller owns the final repository-wide validation, commit, push, and PR. You may run focused tests while iterating, but do not commit, push, create or edit a PR, comment on GitHub, merge, or modify any other checklist item. Change exactly this top-level marker from [ ] to [x] only after the behavior-preserving source refactor is complete.{resume}
+Run focused checks while working, then run the definitive validation command yourself and keep diagnosing and repairing until it passes or you reach a concrete blocker:
+
+{json.dumps(validation_commands)}
+
+The deterministic controller will independently rerun that validation before publication and owns commit, push, and PR creation. Do not commit, push, create or edit a PR, comment on GitHub, merge, weaken validation, or modify any other checklist item. Change exactly this top-level marker from [ ] to [x] only after the behavior-preserving source refactor is complete.{resume}
 """
 
 
-def correction_prompt(item: ChecklistItem, output: str) -> str:
+def correction_prompt(
+    item: ChecklistItem, output: str, validation_commands: list[list[str]]
+) -> str:
     tail = output[-12000:]
     return f"""Use the codebase-organizer skill at {SKILL_ROOT / 'SKILL.md'}.
 
@@ -337,11 +342,63 @@ The approved item is still exactly:
 
 {item.block}
 
-The deterministic full validation failed. Repair only code caused by this organization slice. Do not weaken tests, types, lint, configuration, schema, permissions, or validation. Do not change additional checklist items, commit, push, or create a PR.
+The controller's independent validation failed. Diagnose the failure, continue repairing the approved organization slice, and run the definitive validation yourself until it passes or you reach a concrete blocker:
+
+{json.dumps(validation_commands)}
+
+You may iterate as many times as useful. Preserve behavior and do not weaken tests, types, lint, configuration, schema, permissions, or validation. Do not change additional checklist items, commit, push, or create a PR.
 
 Validation output:
 {tail}
 """
+
+
+def working_tree_fingerprint(workspace: Path) -> str:
+    digest = hashlib.sha256()
+    digest.update(git(workspace, "diff", "--binary", "HEAD").stdout.encode())
+    untracked = git(
+        workspace, "ls-files", "--others", "--exclude-standard", "-z"
+    ).stdout.split("\0")
+    for relative in sorted(path for path in untracked if path):
+        digest.update(relative.encode())
+        path = workspace / relative
+        if path.is_file() and not path.is_symlink():
+            digest.update(path.read_bytes())
+        elif path.is_symlink():
+            digest.update(os.readlink(path).encode())
+    return digest.hexdigest()
+
+
+def validate_with_agent_corrections(
+    config: dict[str, Any],
+    workspace: Path,
+    item: ChecklistItem,
+    original_checklist: str,
+    checklist_path: Path,
+    commands: list[list[str]],
+    stream: TextIO,
+) -> None:
+    validation = run_validation(workspace, commands, stream)
+    while validation.returncode != 0:
+        before = working_tree_fingerprint(workspace)
+        correction = run_agent(
+            config,
+            workspace,
+            correction_prompt(item, validation.stdout, commands),
+            stream,
+        )
+        if correction.returncode != 0:
+            raise OrganizerFailure(
+                f"organizer correction agent exited with code {correction.returncode}"
+            )
+        require_exact_checklist_transition(
+            original_checklist, checklist_path.read_text(), item
+        )
+        validation = run_validation(workspace, commands, stream)
+        if validation.returncode != 0 and working_tree_fingerprint(workspace) == before:
+            raise OrganizerFailure(
+                "definitive validation still failed and the agent made no repository progress"
+            )
 
 
 def run_agent(
@@ -537,6 +594,7 @@ def execute_project(
         branch=branch,
         item=item,
         resuming=resuming,
+        validation_commands=project["validation_commands"],
     )
     agent = run_agent(config, workspace, prompt, stream)
     if agent.returncode != 0:
@@ -549,20 +607,19 @@ def execute_project(
         return f"{project['name']}: {item.item_id} required no source changes"
 
     commands = project["validation_commands"]
-    validation = run_validation(workspace, commands, stream)
-    for _ in range(int(config.get("validation_correction_cycles", 2))):
-        if validation.returncode == 0:
-            break
-        correction = run_agent(
-            config, workspace, correction_prompt(item, validation.stdout), stream
+    try:
+        validate_with_agent_corrections(
+            config,
+            workspace,
+            item,
+            original,
+            checklist_path,
+            commands,
+            stream,
         )
-        if correction.returncode != 0:
-            break
-        require_exact_checklist_transition(original, checklist_path.read_text(), item)
-        validation = run_validation(workspace, commands, stream)
-    if validation.returncode != 0:
+    except OrganizerFailure:
         atomic_write(checklist_path, original)
-        raise OrganizerFailure("definitive validation failed after correction cycles")
+        raise
 
     require_exact_checklist_transition(original, checklist_path.read_text(), item)
     number, url = publish(

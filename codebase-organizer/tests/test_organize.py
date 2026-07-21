@@ -118,6 +118,86 @@ class OrganizerTests(unittest.TestCase):
             with self.assertRaisesRegex(MODULE.OrganizerFailure, "JSON object"):
                 MODULE.load_config(path)
 
+    def test_validation_corrections_continue_past_two_attempts_until_green(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary) / "workspace"
+            workspace.mkdir()
+            self.git("init", "-b", "main", cwd=workspace)
+            self.git("config", "user.email", "organizer@example.test", cwd=workspace)
+            self.git("config", "user.name", "Organizer Test", cwd=workspace)
+            source = workspace / "source.txt"
+            source.write_text("initial\n")
+            self.git("add", "source.txt", cwd=workspace)
+            self.git("commit", "-m", "initial", cwd=workspace)
+
+            original = "- [ ] **sales** — Align sales\n"
+            item = MODULE.first_unchecked_item(original)
+            assert item
+            checklist = Path(temporary) / "organization.md"
+            checklist.write_text(MODULE.completed_checklist_text(original, item))
+            validations = [
+                subprocess.CompletedProcess([], 1, f"failure {index}", "")
+                for index in range(3)
+            ] + [subprocess.CompletedProcess([], 0, "green", "")]
+            correction_count = 0
+
+            def fake_correction(*_args: object) -> subprocess.CompletedProcess[str]:
+                nonlocal correction_count
+                correction_count += 1
+                source.write_text(f"correction {correction_count}\n")
+                return subprocess.CompletedProcess([], 0, "", "")
+
+            with mock.patch.object(
+                MODULE, "run_validation", side_effect=validations
+            ) as validation, mock.patch.object(
+                MODULE, "run_agent", side_effect=fake_correction
+            ):
+                MODULE.validate_with_agent_corrections(
+                    {},
+                    workspace,
+                    item,
+                    original,
+                    checklist,
+                    [["pnpm", "run", "validate"]],
+                    mock.Mock(),
+                )
+
+            self.assertEqual(correction_count, 3)
+            self.assertEqual(validation.call_count, 4)
+
+    def test_validation_corrections_stop_when_agent_makes_no_progress(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary) / "workspace"
+            workspace.mkdir()
+            self.git("init", "-b", "main", cwd=workspace)
+            self.git("config", "user.email", "organizer@example.test", cwd=workspace)
+            self.git("config", "user.name", "Organizer Test", cwd=workspace)
+            self.git("commit", "--allow-empty", "-m", "initial", cwd=workspace)
+            original = "- [ ] **sales** — Align sales\n"
+            item = MODULE.first_unchecked_item(original)
+            assert item
+            checklist = Path(temporary) / "organization.md"
+            checklist.write_text(MODULE.completed_checklist_text(original, item))
+            failed = subprocess.CompletedProcess([], 1, "still failing", "")
+
+            with mock.patch.object(
+                MODULE, "run_validation", return_value=failed
+            ), mock.patch.object(
+                MODULE,
+                "run_agent",
+                return_value=subprocess.CompletedProcess([], 0, "", ""),
+            ):
+                with self.assertRaisesRegex(MODULE.OrganizerFailure, "no repository progress"):
+                    MODULE.validate_with_agent_corrections(
+                        {},
+                        workspace,
+                        item,
+                        original,
+                        checklist,
+                        [["pnpm", "run", "validate"]],
+                        mock.Mock(),
+                    )
+
     def test_execute_project_publishes_one_validated_slice_end_to_end(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -159,7 +239,6 @@ class OrganizerTests(unittest.TestCase):
             config = {
                 "provider": "codex",
                 "workspace_root": str(root / "workspaces"),
-                "validation_correction_cycles": 0,
             }
 
             def fake_agent(

@@ -113,6 +113,19 @@ def validate_config(config: dict[str, Any], config_path: Path) -> list[str]:
             for command in review_commands
         ):
             errors.append(f"{name}: review_comment_commands must be non-empty single-line strings")
+        simplify_commands = merged.get("simplify_comment_commands", ["/simplify"])
+        if not isinstance(simplify_commands, list) or not simplify_commands or not all(
+            isinstance(command, str)
+            and command
+            and command == command.strip()
+            and "\n" not in command
+            and "\0" not in command
+            for command in simplify_commands
+        ):
+            errors.append(f"{name}: simplify_comment_commands must be non-empty single-line strings")
+        if isinstance(review_commands, list) and isinstance(simplify_commands, list):
+            if set(review_commands) & set(simplify_commands):
+                errors.append(f"{name}: review and simplify commands must be distinct")
         author_associations = merged.get(
             "review_comment_author_associations",
             ["OWNER", "MEMBER", "COLLABORATOR"],
@@ -159,15 +172,9 @@ def validate_config(config: dict[str, Any], config_path: Path) -> list[str]:
             "docs_max_age_hours": (1, 168),
             "skill_max_age_days": (1, 31),
             "ai_files_max_age_days": (1, 31),
-            "validation_attempts": (1, 3),
-            "validation_correction_cycles": (1, 3),
-            "result_contract_correction_cycles": (0, 2),
         }
         for field, (minimum, maximum) in numeric_ranges.items():
-            defaults = {
-                "result_contract_correction_cycles": 1,
-            }
-            value = merged.get(field, defaults.get(field))
+            value = merged.get(field)
             if not isinstance(value, int) or not minimum <= value <= maximum:
                 errors.append(f"{name}: {field} must be between {minimum} and {maximum}")
     for field in (

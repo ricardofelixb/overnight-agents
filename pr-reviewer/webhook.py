@@ -27,6 +27,7 @@ from review import ReviewFailure, load_configuration
 MAX_BODY_BYTES = 2_000_000
 DELIVERY_RE = re.compile(r"^[A-Za-z0-9-]{1,100}$")
 DEFAULT_REVIEW_COMMANDS = ["/review"]
+DEFAULT_SIMPLIFY_COMMANDS = ["/simplify"]
 DEFAULT_REVIEW_AUTHOR_ASSOCIATIONS = ["OWNER", "MEMBER", "COLLABORATOR"]
 
 
@@ -146,6 +147,7 @@ class DeliveryQueue:
                 command.append("--apply")
             if job.get("force") is True:
                 command.append("--force")
+            command.extend(["--operation", str(job.get("operation", "review"))])
             self.log_path.parent.mkdir(parents=True, exist_ok=True)
             with self.log_path.open("a") as stream:
                 stream.write(
@@ -232,8 +234,14 @@ class WebhookApplication:
         if issue.get("state") != "open":
             return 202, {"status": "ignored", "reason": "pull_request_state"}
         comment = payload.get("comment") or {}
-        commands = project.get("review_comment_commands", DEFAULT_REVIEW_COMMANDS)
-        if str(comment.get("body", "")).strip() not in commands:
+        body = str(comment.get("body", "")).strip()
+        review_commands = project.get("review_comment_commands", DEFAULT_REVIEW_COMMANDS)
+        simplify_commands = project.get("simplify_comment_commands", DEFAULT_SIMPLIFY_COMMANDS)
+        if body in review_commands:
+            operation = "review"
+        elif body in simplify_commands:
+            operation = "simplify"
+        else:
             return 202, {"status": "ignored", "reason": "command"}
         author = ((comment.get("user") or {}).get("login") or "")
         if author in project.get("excluded_authors", []):
@@ -254,7 +262,8 @@ class WebhookApplication:
             "project": project["name"],
             "repository": project["repository"],
             "pr_number": number,
-            "action": "issue_comment:review_command",
+            "action": f"issue_comment:{operation}_command",
+            "operation": operation,
             "force": True,
         }
         created = self.queue.enqueue(delivery, job)

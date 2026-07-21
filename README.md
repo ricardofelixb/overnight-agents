@@ -29,7 +29,7 @@ Executes one approved, behavior-preserving source-organization slice at a time f
 
 The organizer performs clean atomic refactors: it removes old paths and updates every repository-controlled caller without barrels, forwarding modules, aliases, compatibility shims, or legacy fallbacks. A reusable `codebase-organizer` skill defines canonical folder and filename patterns, while each project's persistent checklist defines its exact approved moves.
 
-Runs use an isolated controller-owned clone, a global and per-project enable switch, and one active organizer PR per project. The deterministic controller owns the definitive validation, commit, push, and PR creation. Organizer branches skip the generic PR simplification pass and proceed directly to the existing correctness/security PR reviewer.
+Runs use an isolated controller-owned clone, a global and per-project enable switch, and one active organizer PR per project. The deterministic controller owns the definitive validation, commit, push, and PR creation. Organizer PRs can be reviewed explicitly with `/review`; they never launch another simplification pass automatically.
 
 `code-simplifier` and `codebase-organizer` share `state/maintenance.lock`, preventing overlapping scheduled maintenance even if both LaunchAgents are enabled.
 
@@ -37,23 +37,29 @@ Runs use an isolated controller-owned clone, a global and per-project enable swi
 
 Reviews an eligible pull request at an exact base/head pair after an authorized owner, member, or collaborator posts the exact comment `/review`. One Codex orchestrator spawns three specialist sub-agents for behavior/contracts, security/provider boundaries, and an independent simplification/hygiene pass. It reconciles their evidence, reads SHA-bound PR comments, reviews, and GitHub CI logs as untrusted leads, consults allowlisted current provider documentation and promoted official skills, and directly repairs every proven bounded issue in the touched behavioral slice. Repairs may address introduced defects, pre-existing defects, valid PR follow-ups, security hardening, performance, worthwhile code hygiene, or a reproducible validation-gate failure.
 
-The GitHub webhook subscribes only to `issue_comment`. The loopback-only receiver verifies `X-Hub-Signature-256`, requires a newly created comment on an open PR, authorizes the signed GitHub `OWNER`, `MEMBER`, or `COLLABORATOR` association, matches `/review` exactly, durably deduplicates the delivery, and processes reviews sequentially outside the HTTP request. Pushes, PR lifecycle events, CI events, reviews, ordinary comments, edited commands, comments on non-PR issues, and unauthorized commands never start a cycle. Dependabot remains excluded by the PR policy.
+The GitHub webhook subscribes only to `issue_comment`. The loopback-only receiver verifies `X-Hub-Signature-256`, requires a newly created comment on an open PR, authorizes the signed GitHub `OWNER`, `MEMBER`, or `COLLABORATOR` association, maps `/review` to only the reviewer and `/simplify` to only the PR simplifier, durably deduplicates the delivery, and processes jobs sequentially outside the HTTP request. Both commands fail closed before launching an agent unless GitHub CI is green for the exact PR head. Pushes, PR lifecycle events, CI events, reviews, ordinary comments, edited commands, comments on non-PR issues, and unauthorized commands never start a cycle. Dependabot remains excluded by policy.
 
 ```text
 Authorized `/review` PR comment
   -> signed loopback webhook receiver
   -> durable, delivery-ID-deduplicated queue
+  -> require green GitHub CI for the exact head
   -> exact-SHA PR controller
-  -> PR simplifier
   -> behavior/contracts + security/provider + simplification/hygiene reviewer
   -> fresh verifier
-  -> one definitive local validation gate
+  -> local validation only when the reviewer edits code
   -> verified repair commit or idempotent PR summary
+
+Authorized `/simplify` PR comment
+  -> same receiver, queue, CI gate, and exact-SHA controller
+  -> PR simplifier only
+  -> full local validation when code changes
+  -> lease-protected simplification commit (no review comment)
 ```
 
 Provider routing uses progressive disclosure. The controller detects broad candidate domains and verifies a trusted catalog of fresh, hashed skills and official documentation, but Codex opens only the smallest skill topic and document required by a concrete code question. Candidate domains do not require provider evidence when repository code, types, tests, and project rules are sufficient. Fresh documentation caches are reused without another network request.
 
-The orchestrator may edit but cannot commit, push, comment on GitHub, approve, merge, or delete branches. After edits it uses a fresh verifier sub-agent. A deterministic controller owns the exact-SHA workspace, checks the reported working-tree files, runs one definitive local validation after both agent phases, and maintains one idempotent PR comment explaining either “safe to merge,” “fixed and safe to merge,” or the exact blocking decision. The user remains the final merger.
+The orchestrator may edit but cannot commit, push, comment on GitHub, approve, merge, or delete branches. After edits it uses a fresh verifier sub-agent. A deterministic controller owns the exact-SHA workspace, checks the reported working-tree files, validates reviewer edits, and maintains one idempotent PR comment explaining either “safe to merge,” “fixed and safe to merge,” or the exact blocking decision. A clean read-only review relies on the exact-head green GitHub CI admission evidence instead of rerunning the same local gate. The user remains the final merger.
 
 Reviewer workspaces are disposable controller-owned clones. First-run and interrupted `--no-checkout` clones are checked out before cleanliness is evaluated; contaminated or incomplete workspaces are moved to an auditable quarantine and replaced atomically. Successful or blocked results are cached by PR head and update timestamp for ordinary controller safety; every new authorized `/review` delivery intentionally requests a fresh cycle, even on the same SHA.
 
@@ -65,9 +71,9 @@ A semantic blocker sends one deduplicated outbound Telegram notification with th
 
 ### pr-simplifier skill
 
-`pr-simplifier/skills/simplify-pr-implementation` is the default first-pass skill for eligible human PRs. It binds work to exact base/head SHAs and uses three read-only specialists for reuse, maintainability, and efficiency; the orchestrator may retain only behavior-preserving improvements that pass an independent verifier. It is PR-slice scoped rather than folder scoped, and it does not certify correctness, recommend merging, or replace `pr-reviewer`.
+`pr-simplifier/skills/simplify-pr-implementation` is an explicitly requested pass for eligible PRs. It binds work to exact base/head SHAs and uses three read-only specialists for reuse, maintainability, and efficiency; the orchestrator may retain only behavior-preserving improvements that pass an independent verifier. It is PR-slice scoped rather than folder scoped, and it does not certify correctness, recommend merging, or replace `pr-reviewer`.
 
-The webhook queue owns one atomic lifecycle after `/review`: dependency setup -> PR simplifier -> local simplification checkpoint -> ordinary PR reviewer in the same workspace -> one definitive `pnpm run validate` -> one final branch push and one idempotent comment. Nothing from the simplifier is pushed or commented independently. Before the single lease-protected push, the controller verifies that the remote PR branch still equals the original GitHub head; the lease makes that comparison atomic, so a concurrent human push aborts publication instead of being overwritten. Controller-authored pushes do not recurse because pushes are not subscribed events. A later human push waits for another explicit `/review`. Scheduled `code-simplify/*` PRs already received their simplification pass and proceed directly to `pr-reviewer` after the command.
+The two commands are intentionally independent. `/simplify` runs only the simplifier, requires full local validation for any edit, and pushes one lease-protected commit without posting a reviewer comment. `/review` runs only the correctness/security reviewer and posts its idempotent summary; it runs local validation only if it repairs code. Neither command automatically launches the other. Before any push, the controller verifies that the remote PR branch still equals the original GitHub head; the lease makes that comparison atomic, so a concurrent human push aborts publication instead of being overwritten.
 
 #### How the checklist works
 
@@ -161,7 +167,7 @@ Add `simplification.md` to `.gitignore`. Each run picks the next unchecked folde
      --env ./pr-reviewer/.env
    ```
 
-   The hook subscribes only to `issue_comment`. Post the exact comment `/review` on an open PR when you want one full cycle. A new authorized command intentionally starts a new exact-SHA cycle even if the same head was reviewed previously.
+   The hook subscribes only to `issue_comment`. Post `/review` for only a correctness/security review or `/simplify` for only a behavior-preserving simplification pass. Run either command after GitHub CI is green. A new authorized command intentionally starts a fresh exact-SHA job even if the same head was handled previously.
 
 The weekly refresh uses isolated temporary clones. It promotes audited provider skills globally and runs `npx convex ai-files update` for each enabled Convex project, publishing a hashed guidance snapshot without modifying the configured source checkout.
 
@@ -220,6 +226,7 @@ The marker becomes complete only when the source refactor is ready and the contr
   "allowed_head_patterns": ["*"],
   "excluded_authors": ["dependabot[bot]", "app/dependabot"],
   "review_comment_commands": ["/review"],
+  "simplify_comment_commands": ["/simplify"],
   "review_comment_author_associations": ["OWNER", "MEMBER", "COLLABORATOR"],
   "allow_forks": false,
   "validation_commands": [["pnpm", "run", "validate"]],
@@ -231,14 +238,14 @@ Draft PRs remain ineligible even if someone comments `/review`. Cross-repository
 
 ### Validation self-healing
 
-Local validation runs after both agent phases instead of duplicating GitHub CI before review:
+The commands own their validation independently:
 
-1. Capture current GitHub check metadata and failed step logs as untrusted review evidence when available.
-2. Run the PR simplifier and correctness/security reviewer in one isolated workspace.
-3. Run the configured local validation command once against the final reviewed tree.
-4. If it fails, feed the exact failure into up to two focused correction cycles without repeating either full agent pass; each correction is revalidated.
-5. Never modify protected CI policy, weaken tests, or loosen types/lint to obtain green status.
-6. Require a fresh verifier and a passing definitive validation before pushing or posting a clean recommendation.
+1. Require green GitHub CI for the exact input head before either agent starts.
+2. `/simplify` runs only the simplifier; if it edits code, the controller runs the full configured validation before committing or pushing.
+3. `/review` runs only the reviewer; a read-only result reuses the green exact-head CI evidence, while any repair must pass full local validation before it is committed or pushed.
+4. A failing locally changed tree returns to the responsible agent for focused correction and revalidation without a numeric attempt ceiling or another full discovery pass.
+5. Correction continues while it makes progress and stops only on green, an evidence-backed blocker, a changed remote head, or a repeated no-progress state.
+6. Never modify protected CI policy, weaken tests, or loosen types/lint to obtain green status.
 
 If the failure is external, transient, ambiguous, or unsafe to repair, the reviewer reports the precise blocker instead of guessing.
 
@@ -273,6 +280,15 @@ If the failure is external, transient, ambiguous, or unsafe to repair, the revie
   --config ./pr-reviewer/config.json \
   --project example \
   --pr 123 \
+  --operation review \
+  --apply
+
+# Simplify one exact PR without launching the reviewer.
+./pr-reviewer/review.py \
+  --config ./pr-reviewer/config.json \
+  --project example \
+  --pr 123 \
+  --operation simplify \
   --apply
 
 # Retry pending outbound notifications; this never starts a review.

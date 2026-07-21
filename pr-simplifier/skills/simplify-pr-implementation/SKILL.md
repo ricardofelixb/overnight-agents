@@ -1,6 +1,6 @@
 ---
 name: simplify-pr-implementation
-description: Simplify and optimize an eligible human-authored pull request at immutable base and head SHAs with parallel reuse, quality, and efficiency specialists while preserving behavior and public contracts. Use as the default first pass before final correctness/security review, or when explicitly asked to simplify a PR implementation; do not use for scheduled folder-checklist maintenance, broad repository cleanup, or final merge approval.
+description: Simplify and optimize an eligible pull request at immutable base and head SHAs with parallel reuse, quality, and efficiency specialists while preserving behavior and public contracts. Use when explicitly asked to simplify a PR implementation; do not use for scheduled folder-checklist maintenance, broad repository cleanup, correctness/security review, or final merge approval.
 ---
 
 # Simplify PR Implementation
@@ -19,13 +19,14 @@ Read [simplification-protocol.md](references/simplification-protocol.md) complet
    - `reuse-abstractions`: find existing utilities, components, hooks, types, and patterns that can replace duplication.
    - `quality-maintainability`: find redundant state, unnecessary indirection, copy-paste drift, parameter sprawl, unclear ownership, and brittle structure.
    - `efficiency-performance`: find avoidable repeated work, serializable concurrency, excess subscriptions/renders/queries, resource leaks, and needlessly expensive paths.
+   Retry transient specialist or verifier dispatch failures without restarting successful work. Infrastructure failure is not an implementation finding and must not consume a validation correction or become a blocker while recovery is still possible.
 4. Reconcile every recommendation against the code. The orchestrator alone edits. Apply only high-confidence, behavior-preserving improvements with a fully inspectable blast radius.
 5. Preserve public behavior, authorization, error semantics, persistence formats, migrations, external contracts, and the PR's intended outcome. Report a semantic defect or security concern for the final reviewer instead of silently redefining behavior.
 6. Prefer no change over stylistic churn. Do not broaden into an overall repository scan, dependency upgrade, migration, redesign, generated-file edit, CI-policy change, or unrelated cleanup.
 7. Run focused checks after editing. Spawn one fresh read-only verifier with the raw original PR diff and final working-tree diff. Revert or correct any change whose behavioral equivalence is not proven.
 8. Report every inspected repository file in `reviewed_files`; include every supplied PR changed file.
 
-Never commit, push, comment, approve, merge, delete branches, alter Git configuration, or expose credentials. A deterministic controller owns those actions and full validation. The controller may create an unpushed local checkpoint from the verified working tree so the downstream reviewer can inspect one immutable SHA in the same workspace; this skill never creates that checkpoint itself.
+Never commit, push, comment, approve, merge, delete branches, alter Git configuration, or expose credentials. A deterministic controller owns those actions and full validation. When this skill changes code, the controller validates the result and may create and push one lease-protected commit; this skill never creates that commit itself.
 
 Return only one JSON object conforming to [orchestrator-result.schema.json](references/orchestrator-result.schema.json).
 

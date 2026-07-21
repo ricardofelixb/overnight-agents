@@ -90,6 +90,7 @@ class WebhookTests(unittest.TestCase):
         )
         self.assertEqual((status, body["status"]), (202, "queued"))
         self.assertEqual(queue.jobs["delivery-1"]["pr_number"], 17)
+        self.assertEqual(queue.jobs["delivery-1"]["operation"], "review")
         self.assertTrue(queue.jobs["delivery-1"]["force"])
         _, duplicate = application.handle(
             "issue_comment",
@@ -97,6 +98,17 @@ class WebhookTests(unittest.TestCase):
             self.review_command_payload(),
         )
         self.assertEqual(duplicate["status"], "duplicate")
+
+    def test_simplify_command_queues_only_the_simplifier(self) -> None:
+        application, queue = self.application()
+        status, body = application.handle(
+            "issue_comment",
+            "delivery-simplify",
+            self.review_command_payload(body="/simplify"),
+        )
+        self.assertEqual((status, body["status"]), (202, "queued"))
+        self.assertEqual(queue.jobs["delivery-simplify"]["operation"], "simplify")
+        self.assertEqual(queue.jobs["delivery-simplify"]["action"], "issue_comment:simplify_command")
 
     def test_pushes_non_commands_and_unauthorized_comments_are_ignored(self) -> None:
         application, queue = self.application()

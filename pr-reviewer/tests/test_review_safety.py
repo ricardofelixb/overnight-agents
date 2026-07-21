@@ -34,6 +34,7 @@ from review import (
     push_final_head,
     record_simplification_state,
     record_review_state,
+    require_green_github_ci,
     reject_policy_changes,
     reject_protected_agent_edits,
     result_contract_correction_prompt,
@@ -194,7 +195,6 @@ class ReviewSafetyTests(unittest.TestCase):
             "validation_evidence": root / "validation.json",
             "ai_files_manifest": root / "ai-files.json",
             "repairs_allowed": True,
-            "simplification_context": root / "simplification.json",
         })
         self.assertIn("Spawn the three named specialist sub-agents concurrently", prompt)
         self.assertIn("pre-existed at the base", prompt)
@@ -206,8 +206,6 @@ class ReviewSafetyTests(unittest.TestCase):
         self.assertIn("Do not open every skill or document", prompt)
         self.assertIn(str(root / "ai-files.json"), prompt)
         self.assertIn("generated guidelines", prompt)
-        self.assertIn(str(root / "simplification.json"), prompt)
-        self.assertIn("untrusted lead", prompt)
         self.assertIn("verification.verdict", prompt)
         self.assertIn("fresh independent verifier", prompt)
 
@@ -220,7 +218,7 @@ class ReviewSafetyTests(unittest.TestCase):
             prior_result=root / "result.json",
             validation_evidence=root / "validation.json",
         )
-        self.assertIn("bounded final-validation correction cycle, not a new review", prompt)
+        self.assertIn("focused final-validation correction, not a new review", prompt)
         self.assertIn("Do not restart the three specialist reviews", prompt)
         self.assertIn(str(root / "result.json"), prompt)
         self.assertIn(str(root / "validation.json"), prompt)
@@ -235,7 +233,7 @@ class ReviewSafetyTests(unittest.TestCase):
             invalid_result=root / "invalid.json",
             contract_errors=root / "errors.txt",
         )
-        self.assertIn("bounded result-contract correction, not a new review", prompt)
+        self.assertIn("focused result-contract correction, not a new review", prompt)
         self.assertIn("Do not restart specialist reviews", prompt)
         self.assertIn("verification.verdict", prompt)
         self.assertIn(str(root / "invalid.json"), prompt)
@@ -289,7 +287,6 @@ class ReviewSafetyTests(unittest.TestCase):
                     runner,
                     {
                         "skill_path": str(root / "skill"),
-                        "result_contract_correction_cycles": 1,
                     },
                     root / "workspace",
                     {
@@ -305,7 +302,6 @@ class ReviewSafetyTests(unittest.TestCase):
                     root / "review.json",
                     root / "ci.json",
                     root / "validation.json",
-                    None,
                     None,
                     True,
                 )
@@ -381,7 +377,7 @@ class ReviewSafetyTests(unittest.TestCase):
             self.assertEqual(carried["reason"], "simplification_commit")
             self.assertEqual(carried["head_sha"], "c" * 40)
             self.assertEqual(carried["simplification_head_sha"], "b" * 40)
-            self.assertEqual(carried["finalized_by"], "reviewer_output")
+            self.assertEqual(carried["finalized_by"], "controller_output")
 
     def test_simplification_checkpoint_stays_local_until_atomic_push(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -523,6 +519,9 @@ class ReviewSafetyTests(unittest.TestCase):
                     workspace,
                     pr,
                     run_dir,
+                    [["true"]],
+                    [],
+                    {},
                     apply=True,
                 )
                 self.assertEqual(current, pr)
@@ -535,11 +534,25 @@ class ReviewSafetyTests(unittest.TestCase):
                     workspace,
                     pr,
                     run_dir,
+                    [["true"]],
+                    [],
+                    {},
                     apply=True,
                 )
                 self.assertEqual(second, pr)
                 self.assertEqual(second_state, state)
                 orchestrate.assert_called_once()
+
+    def test_github_ci_gate_requires_checks_to_be_green(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            context = Path(temporary) / "ci.json"
+            context.write_text(json.dumps({"checks": [{"bucket": "pending"}]}))
+            with self.assertRaisesRegex(ReviewFailure, "still pending"):
+                require_green_github_ci(context)
+            context.write_text(
+                json.dumps({"checks": [{"bucket": "pass"}, {"bucket": "skipping"}]})
+            )
+            require_green_github_ci(context)
 
     def test_convex_ai_files_snapshot_is_fresh_and_hash_verified(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -816,7 +829,7 @@ class ReviewSafetyTests(unittest.TestCase):
         ):
             result = validate_final_result_with_corrections(
                 runner,
-                {"validation_correction_cycles": 2, "validation_attempts": 1},
+                {},
                 Path("/tmp/workspace"),
                 {"baseRefOid": "a" * 40, "headRefOid": "b" * 40},
                 Path("/tmp/run"),
@@ -831,10 +844,9 @@ class ReviewSafetyTests(unittest.TestCase):
             )
         self.assertIs(result, corrected)
         self.assertEqual(collect.call_count, 2)
-        self.assertTrue(all(call.kwargs["attempts"] == 1 for call in collect.call_args_list))
         correct.assert_called_once()
         runner.log.assert_called_once_with(
-            "Final validation failed; starting focused correction cycle 1/2"
+            "Final validation failed; continuing focused correction 1"
         )
 
     def test_pr_head_projection_is_polled_after_push(self) -> None:

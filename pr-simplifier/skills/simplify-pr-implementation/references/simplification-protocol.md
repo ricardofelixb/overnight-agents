@@ -22,7 +22,7 @@ Do not edit solely for naming taste, formatting preference, generic best-practic
 
 Reuse existing project abstractions before creating new ones. Create a new shared abstraction only when the PR itself introduces repeated behavior, the ownership boundary is clear, and every consumer is in the inspected slice.
 
-## Separation from final review
+## Separation from correctness review
 
 This pass asks, “Can the implementation be simpler without changing behavior?” It does not certify correctness, security, or merge readiness.
 
@@ -33,7 +33,7 @@ If investigation reveals a likely semantic defect, authorization problem, unsafe
 3. continue with independent safe simplifications
 4. return `blocked` only when no safe change is retained and the ambiguity prevents a trustworthy pass; otherwise return `simplified_blocked`
 
-The downstream autonomous PR reviewer independently re-reads the resulting exact SHA, validates correctness and security, may repair proven defects, and owns the merge recommendation.
+The simplifier does not launch or substitute for the autonomous PR reviewer. A separate explicit `/review` command may later review the resulting exact SHA.
 
 ## Specialist responsibilities
 
@@ -54,7 +54,7 @@ Each report must include inspected files, evidence, expected benefit, behavior-p
 5. Give a fresh verifier the raw base/head diff, final working-tree diff, relevant rules, and focused test evidence. Do not disclose specialist conclusions or intended improvements.
 6. Require the verifier to pass for any retained edit. Revert an edit completely if its equivalence is uncertain.
 
-Full repository validation remains the controller's responsibility. When it rejects a simplification, use the exact failure artifact in a bounded correction cycle: preserve independently proven improvements, repair or revert the failing edit, and run a fresh verifier without rerunning the three specialist reviews. Never loosen a gate to make it green. The controller bounds correction attempts, may create a local immutable checkpoint for downstream review, and publishes nothing until both phases finish.
+Full repository validation remains the controller's responsibility. When it rejects a simplification, use the exact failure artifact in a focused correction continuation: preserve independently proven improvements, repair or revert the failing edit, and run a fresh verifier without rerunning the three specialist reviews. Never loosen a gate to make it green. Continue while evidence shows progress; stop only on green or a precise evidence-backed blocker. The controller publishes no simplifier edit until validation passes.
 
 ## Result discipline
 

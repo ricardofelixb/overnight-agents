@@ -21,12 +21,11 @@
     "docs_max_age_hours": 24,
     "skill_max_age_days": 8,
     "ai_files_max_age_days": 8,
-    "validation_attempts": 1,
-    "validation_correction_cycles": 2,
     "simplify_human_prs": true,
     "simplification_skip_head_patterns": ["code-simplify/*", "code-organize/*"],
     "telegram_notifications_enabled": true,
     "review_comment_commands": ["/review"],
+    "simplify_comment_commands": ["/simplify"],
     "review_comment_author_associations": ["OWNER", "MEMBER", "COLLABORATOR"],
     "validation_environment": {},
     "protected_policy_patterns": [

@@ -14,9 +14,14 @@
       "source_path": "/absolute/path/to/project",
       "repository": "owner/repository",
       "base_branch": "main",
-      "environment_file": "/absolute/path/to/private/example.env.local",
       "checklist_file": "/absolute/path/to/private/example-organization.md",
-      "validation_commands": [["pnpm", "run", "validate"]]
+      "validation_commands": [["pnpm", "run", "validate"]],
+      "workspace": {
+        "type": "linked-worktree",
+        "setup_command": ["scripts/setup-worktree.sh"],
+        "cleanup_command": ["scripts/cleanup-worktree.sh"],
+        "management_token_file": "/absolute/path/to/private/convex-management.token"
+      }
     }
   ]
 }

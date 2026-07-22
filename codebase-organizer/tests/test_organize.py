@@ -83,6 +83,18 @@ class OrganizerTests(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.OrganizerFailure, "boolean"):
             MODULE.validate_config(config)
 
+    def test_linked_worktree_configuration_uses_repository_hooks(self) -> None:
+        config = self.valid_config()
+        project = config["projects"][0]
+        del project["environment_file"]
+        project["workspace"] = {
+            "type": "linked-worktree",
+            "setup_command": ["scripts/setup-worktree.sh"],
+            "cleanup_command": ["scripts/cleanup-worktree.sh"],
+            "management_token_file": "/private/convex-management.token",
+        }
+        MODULE.validate_config(config)
+
     def test_round_robin_skips_disabled_projects(self) -> None:
         config = self.valid_config()
         config["projects"] = [
@@ -109,6 +121,55 @@ class OrganizerTests(unittest.TestCase):
             self.assertEqual(
                 checklist.read_text(),
                 "- [ ] **sales** — Sales\n- [x] **calendar** — Calendar\n",
+            )
+
+    def test_pending_pr_retries_workspace_cleanup_before_waiting(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            pending_path = root / "state" / "pending" / "example.json"
+            pending_path.parent.mkdir(parents=True)
+            pending_path.write_text(
+                json.dumps(
+                    {
+                        "pull_request": 17,
+                        "item_id": "sales",
+                        "cleanup_workspace": "/private/organizer-worktree",
+                    }
+                )
+            )
+            checklist = root / "organization.md"
+            checklist.write_text("- [x] **sales** — Sales\n")
+            project = {
+                "name": "example",
+                "repository": "owner/example",
+            }
+            response = subprocess.CompletedProcess(
+                [],
+                0,
+                json.dumps(
+                    {
+                        "state": "OPEN",
+                        "mergedAt": None,
+                        "url": "https://github.com/owner/example/pull/17",
+                    }
+                ),
+                "",
+            )
+
+            with mock.patch.object(MODULE, "SCRIPT_DIR", root), mock.patch.object(
+                MODULE, "cleanup_workspace"
+            ) as cleanup, mock.patch.object(MODULE, "run", return_value=response):
+                message = MODULE.reconcile_pending(project, checklist, mock.Mock())
+
+            cleanup.assert_called_once_with(
+                project, Path("/private/organizer-worktree"), mock.ANY
+            )
+            self.assertEqual(
+                message,
+                "example: waiting for organizer PR https://github.com/owner/example/pull/17",
+            )
+            self.assertNotIn(
+                "cleanup_workspace", json.loads(pending_path.read_text())
             )
 
     def test_load_config_rejects_non_object(self) -> None:

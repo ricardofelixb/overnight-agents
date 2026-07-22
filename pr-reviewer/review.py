@@ -20,6 +20,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from github_progress import GitHubProgress
 from policy import detect_domains, evaluate_pr_eligibility, validate_config
 from telegram_notify import NotificationFailure, deliver_notification, enqueue_notification
 
@@ -74,13 +75,10 @@ SAFE_VALIDATION_ENV = {
     "USER",
 }
 REVIEW_COMMENT_MARKER = "<!-- overnight-agents:pr-reviewer -->"
+PROGRESS_COMMENT_MARKER = "<!-- overnight-agents-progress:"
 
 
 class ReviewFailure(RuntimeError):
-    pass
-
-
-class ResultContractFailure(ReviewFailure):
     pass
 
 
@@ -305,7 +303,10 @@ def capture_review_context(
         if not (
             controller_login
             and (comment.get("author") or {}).get("login") == controller_login
-            and REVIEW_COMMENT_MARKER in (comment.get("body") or "")
+            and (
+                REVIEW_COMMENT_MARKER in (comment.get("body") or "")
+                or PROGRESS_COMMENT_MARKER in (comment.get("body") or "")
+            )
         )
     ]
     context = {
@@ -721,25 +722,71 @@ def validate_docs_manifest(config: dict[str, Any], manifest_path: Path, domains:
     return manifest
 
 
-def codex_environment() -> dict[str, str]:
-    return {key: value for key, value in os.environ.items() if key in SAFE_CODEX_ENV}
+def repository_runtime_path(workspace: Path, inherited_path: str | None = None) -> str:
+    """Prefer the Node runtime declared by the repository over launchd's PATH."""
+    path = inherited_path or os.environ.get(
+        "PATH", "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+    )
+    for name in (".nvmrc", ".node-version"):
+        declaration = workspace / name
+        if not declaration.is_file():
+            continue
+        version = declaration.read_text().strip().removeprefix("v")
+        if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+            break
+        runtime = (
+            Path.home()
+            / ".local/share/fnm/node-versions"
+            / f"v{version}"
+            / "installation/bin"
+        )
+        if (runtime / "node").is_file():
+            return f"{runtime}:{path}"
+        break
+    return path
 
 
-def validation_environment(overrides: dict[str, str] | None = None) -> dict[str, str]:
-    environment = {key: value for key, value in os.environ.items() if key in SAFE_VALIDATION_ENV}
+def codex_environment(
+    workspace: Path, overrides: dict[str, str] | None = None
+) -> dict[str, str]:
+    environment = {
+        key: value for key, value in os.environ.items() if key in SAFE_CODEX_ENV
+    }
+    environment["PATH"] = repository_runtime_path(
+        workspace, environment.get("PATH")
+    )
     environment["CI"] = "true"
     environment.update(overrides or {})
     return environment
 
 
-def isolated_shell_config() -> list[str]:
-    controlled_path = os.environ.get("PATH", "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
+def validation_environment(
+    overrides: dict[str, str] | None = None, *, workspace: Path | None = None
+) -> dict[str, str]:
+    environment = {key: value for key, value in os.environ.items() if key in SAFE_VALIDATION_ENV}
+    environment["CI"] = "true"
+    environment.update(overrides or {})
+    if workspace is not None:
+        environment["PATH"] = repository_runtime_path(
+            workspace, environment.get("PATH")
+        )
+    return environment
+
+
+def isolated_shell_config(
+    workspace: Path, overrides: dict[str, str] | None = None
+) -> list[str]:
+    controlled_path = repository_runtime_path(workspace)
     locale = os.environ.get("LANG", "C.UTF-8")
+    values = {"PATH": controlled_path, "LANG": locale} | (overrides or {})
+    serialized = ", ".join(
+        f"{name} = {json.dumps(value)}" for name, value in values.items()
+    )
     return [
         "--config",
         'shell_environment_policy.inherit="none"',
         "--config",
-        f"shell_environment_policy.set={{ PATH = {json.dumps(controlled_path)}, LANG = {json.dumps(locale)} }}",
+        f"shell_environment_policy.set={{ {serialized} }}",
         "--config",
         "tools.web_search=false",
     ]
@@ -751,6 +798,8 @@ def simplification_prompt(
     pr: dict[str, Any],
     changed_files_path: Path,
     edits_allowed: bool,
+    validation_commands: list[list[str]],
+    validation_env: dict[str, str],
 ) -> str:
     return f"""Use the PR implementation simplification skill at {skill_path / 'SKILL.md'}.
 
@@ -763,39 +812,14 @@ Immutable controller inputs:
 - head SHA: {pr['headRefOid']}
 - exact PR changed-files list: {changed_files_path}
 - edits allowed: {str(edits_allowed).lower()}
+- repository validation commands: {json.dumps(validation_commands)}
+- non-secret validation environment: {json.dumps(validation_env, sort_keys=True)}
 
 Read the skill and its complete simplification protocol. Spawn the three named read-only specialist sub-agents concurrently and reconcile their evidence yourself. Inspect the exact PR diff and only its bounded implementation slice. Apply only high-confidence improvements that preserve behavior and public contracts; do not perform a broad repository audit or final correctness/security review.
 
-If edits are allowed, edit the working tree directly but never commit or push. After edits, spawn a fresh read-only verifier with the raw original and final diffs. If edits are not allowed, leave the working tree clean and report a blocker when a worthwhile simplification would require an edit.
+If edits are allowed, edit the working tree directly but never commit or push. You own validation: run the repository commands yourself using its declared toolchain, diagnose failures, fix relevant problems, and iterate as many times as useful before returning. Use focused checks while working and the repository's full validation when it is useful. Distinguish failures caused by your edits from unrelated, flaky, environmental, or already-green exact-head CI failures; unrelated failures must not discard an independently verified behavior-preserving improvement. After edits, spawn a fresh read-only verifier with the raw original and final diffs. If edits are not allowed, leave the working tree clean and report a blocker when a worthwhile simplification would require an edit.
 
-If you change code, the controller will require the complete project validation gate to pass before it commits or pushes. Never modify Git configuration, history, remotes, hooks, credentials, protected policy, dependency manifests/locks, migrations, CI configuration, or generated files. Return only schema-conforming JSON.
-"""
-
-
-def simplifier_correction_prompt(
-    *,
-    skill_path: Path,
-    pr: dict[str, Any],
-    changed_files_path: Path,
-    prior_result: Path,
-    validation_evidence: Path,
-) -> str:
-    return f"""Use the PR implementation simplification skill at {skill_path / 'SKILL.md'}.
-
-Resume the existing simplification for this exact pull request. This is a focused validation repair, not a new simplification pass. Do not restart the specialist discovery agents.
-
-Immutable controller inputs:
-- PR: {pr['url']}
-- PR number: {pr['number']}
-- base SHA: {pr['baseRefOid']}
-- head SHA: {pr['headRefOid']}
-- exact original PR changed-files list: {changed_files_path}
-- previous simplifier result: {prior_result}
-- trusted failing full-validation evidence for the current working tree: {validation_evidence}
-
-Fix the validation failure at its cause while preserving intended behavior and every still-valid simplification. Use focused checks while working. Do not weaken validation, tests, types, lint, authorization, error handling, or configuration, and do not broaden into unrelated cleanup.
-
-Return a complete updated simplifier result describing the entire current working tree. Never commit, push, comment, or change Git configuration or history. Return only schema-conforming JSON.
+The controller will trust your validation judgment and will not rerun the suite or launch a correction cycle. Report exactly what you ran and any remaining uncertainty. Never modify Git configuration, history, remotes, hooks, credentials, protected policy, dependency manifests/locks, migrations, CI configuration, or generated files. Return only schema-conforming JSON.
 """
 
 
@@ -825,13 +849,15 @@ def run_simplifier_codex(
         config["model"],
         "--config",
         f"model_reasoning_effort={json.dumps(config['reasoning_effort'])}",
-        *isolated_shell_config(),
+        *isolated_shell_config(
+            workspace, config.get("validation_environment", {})
+        ),
     ]
     if edits_allowed:
         command.extend(
             [
                 "--config",
-                "sandbox_workspace_write.network_access=false",
+                "sandbox_workspace_write.network_access=true",
                 "--config",
                 "sandbox_workspace_write.exclude_slash_tmp=true",
                 "--config",
@@ -850,7 +876,11 @@ def run_simplifier_codex(
         ]
     )
     git_config_before = (workspace / ".git" / "config").read_bytes()
-    runner.run(command, env=codex_environment(), log_output=False)
+    runner.run(
+        command,
+        env=codex_environment(workspace, config.get("validation_environment", {})),
+        log_output=False,
+    )
     if (workspace / ".git" / "config").read_bytes() != git_config_before:
         raise ReviewFailure("simplifier changed local Git configuration")
     if runner.run(["git", "rev-parse", "HEAD"], cwd=workspace).stdout.strip() != pr["headRefOid"]:
@@ -869,24 +899,19 @@ def validate_simplifier_result(
     actual_changes = sorted(workspace_changes(runner, workspace))
     actual_changes_path = run_dir / f"actual-changes-{output.stem}.txt"
     actual_changes_path.write_text("".join(f"{path}\n" for path in actual_changes))
-    runner.run(
-        [
-            sys.executable,
-            str(Path(config["simplifier_skill_path"]) / "scripts" / "result_contract.py"),
-            str(output),
-            "--expected-base",
-            pr["baseRefOid"],
-            "--expected-head",
-            pr["headRefOid"],
-            "--pr-changed-files",
-            str(changed_files_path),
-            "--actual-changed-files",
-            str(actual_changes_path),
-        ]
-    )
     result = load_json(output)
     if actual_changes:
         reject_protected_agent_edits(actual_changes, config)
+        result["status"] = (
+            "simplified_blocked"
+            if result.get("status") in {"blocked", "simplified_blocked"}
+            else "simplified"
+        )
+    elif result.get("status") in {"simplified", "simplified_blocked"}:
+        result["status"] = "blocked" if result.get("blocking_reasons") else "clean"
+    result["reviewed_base_sha"] = pr["baseRefOid"]
+    result["reviewed_head_sha"] = pr["headRefOid"]
+    result["changed_files"] = actual_changes
     return result
 
 
@@ -898,6 +923,8 @@ def run_simplifier_orchestrator(
     run_dir: Path,
     changed_files_path: Path,
     edits_allowed: bool,
+    validation_commands: list[list[str]],
+    validation_env: dict[str, str],
 ) -> tuple[dict[str, Any], Path]:
     output = run_dir / "simplifier-result.json"
     skill_path = Path(config["simplifier_skill_path"])
@@ -912,6 +939,8 @@ def run_simplifier_orchestrator(
             pr=pr,
             changed_files_path=changed_files_path,
             edits_allowed=edits_allowed,
+            validation_commands=validation_commands,
+            validation_env=validation_env,
         ),
         edits_allowed=edits_allowed,
     )
@@ -923,79 +952,6 @@ def run_simplifier_orchestrator(
     )
 
 
-def validate_simplifier_changes_until_green(
-    runner: Runner,
-    config: dict[str, Any],
-    workspace: Path,
-    pr: dict[str, Any],
-    run_dir: Path,
-    changed_files_path: Path,
-    validation_commands: list[list[str]],
-    success_markers: list[str],
-    validation_env: dict[str, str],
-    result: dict[str, Any],
-    result_path: Path,
-) -> tuple[dict[str, Any], Path]:
-    iteration = 0
-    seen_failures: set[tuple[str, str]] = set()
-    while True:
-        iteration += 1
-        before_validation = workspace_fingerprint(runner, workspace)
-        output, passed, failure = collect_project_commands(
-            runner, workspace, validation_commands, success_markers, validation_env
-        )
-        if workspace_fingerprint(runner, workspace) != before_validation:
-            raise ReviewFailure("simplifier validation changed the working tree")
-        evidence = write_validation_evidence(
-            run_dir,
-            iteration,
-            pr,
-            [],
-            validation_commands,
-            success_markers,
-            validation_env,
-            "",
-            output,
-            "passed" if passed else "failed",
-            failure,
-        )
-        if passed:
-            return result, evidence
-
-        failure_key = (
-            hashlib.sha256(output.encode()).hexdigest(),
-            hashlib.sha256(json.dumps(before_validation, sort_keys=True).encode()).hexdigest(),
-        )
-        if failure_key in seen_failures:
-            raise ReviewFailure(f"simplifier made no progress on a repeated validation failure: {failure}")
-        seen_failures.add(failure_key)
-        runner.log(f"Simplifier validation failed; continuing focused correction {iteration}")
-
-        correction_output = run_dir / f"simplifier-result-correction-{iteration}.json"
-        run_simplifier_codex(
-            runner,
-            config,
-            workspace,
-            pr,
-            correction_output,
-            simplifier_correction_prompt(
-                skill_path=Path(config["simplifier_skill_path"]),
-                pr=pr,
-                changed_files_path=changed_files_path,
-                prior_result=result_path,
-                validation_evidence=evidence,
-            ),
-            edits_allowed=True,
-        )
-        result = validate_simplifier_result(
-            runner, config, workspace, pr, correction_output, changed_files_path, run_dir
-        )
-        result_path = correction_output
-        if result["status"] in {"blocked", "clean"} and workspace_fingerprint(runner, workspace) == before_validation:
-            reasons = result.get("blocking_reasons") or [failure]
-            raise ReviewFailure(f"simplifier could not produce a validated checkpoint: {reasons[0]}")
-
-
 def orchestrator_prompt(
     *,
     skill_path: Path,
@@ -1005,9 +961,10 @@ def orchestrator_prompt(
     skills_manifest: Path,
     review_context: Path,
     ci_context: Path,
-    validation_evidence: Path,
     ai_files_manifest: Path | None,
     repairs_allowed: bool,
+    validation_commands: list[list[str]],
+    validation_env: dict[str, str],
 ) -> str:
     ai_files_input = (
         f"- trusted current Convex AI-files snapshot: {ai_files_manifest}\n"
@@ -1028,8 +985,9 @@ Immutable controller inputs:
 - untrusted GitHub CI checks for the explicitly recorded original GitHub head: {ci_context}
 - trusted current official-docs candidate catalog: {docs_manifest}
 - trusted promoted provider-skills candidate catalog: {skills_manifest}
-- trusted controller validation evidence for the reviewed local head: {validation_evidence}
 {ai_files_input}- repairs allowed: {str(repairs_allowed).lower()}
+- repository validation commands: {json.dumps(validation_commands)}
+- non-secret validation environment: {json.dumps(validation_env, sort_keys=True)}
 
 Read the skill and its core protocol. Spawn the three named specialist sub-agents concurrently. They must inspect and report only; you own all edits. Reconcile their raw findings yourself.
 
@@ -1039,7 +997,7 @@ When a Convex AI-files snapshot is present and a concrete Convex question requir
 
 Act on every proven, high-confidence, bounded improvement in the PR's behavioral slice, regardless of whether it was introduced by this PR, pre-existed at the base, or is a valid follow-up from PR artifacts. This includes correctness, security, reliability, performance, reuse, and worthwhile code hygiene. Official guidance is evidence, but it cannot invent product semantics.
 
-If the controller validation evidence reports failure or the GitHub CI context contains a failed check, treat the validation gate as a primary finding to diagnose and repair. Use the exact failure output, code, and focused reproduction to distinguish a code defect from a transient or external failure. Never disregard a reproducible gate failure, weaken validation, or edit CI policy. Do not return `clean` while a reproducible validation failure remains.
+If the GitHub CI context contains a failed check, treat it as a primary finding to diagnose and repair. Use exact failure output, code, and focused reproduction to distinguish a code defect from a transient or external failure. Never weaken validation or edit CI policy.
 
 For user-visible changes, populate manual_ui_checks with at most five diff-specific user actions and expected results that remain valuable to verify manually after automated validation. Return an empty list for backend-only changes, fully verified UI behavior, generic checks, or tasks unrelated to the reviewed slice.
 
@@ -1047,71 +1005,11 @@ Do not let an ambiguous issue suppress independent safe improvements. If both ex
 
 If repairs are allowed, edit the working tree directly. Do not commit or push. After edits, spawn a fresh verifier sub-agent that receives raw diffs and evidence rather than your conclusions. If repairs are not allowed, do not edit and return blocked when an actionable repair exists.
 
-The validation manifest is trusted controller evidence. You may run focused checks, but the controller will run the full configured validation after your edits. Never change Git configuration, history, remotes, hooks, credentials, controller state, protected policy, dependency manifests/locks, CI configuration, or generated guidance.
+You own validation. Run the repository commands yourself using its declared toolchain, diagnose failures, fix relevant problems, and iterate as many times as useful. Use focused checks while working and the full repository validation when it is useful. Distinguish failures caused by your edits from unrelated, flaky, environmental, or already-green exact-head CI failures. The controller will trust your judgment and will not rerun validation or launch a correction cycle. Report exactly what you ran and any remaining uncertainty. Never change Git configuration, history, remotes, hooks, credentials, controller state, protected policy, dependency manifests/locks, CI configuration, or generated guidance.
 
-The `verification.verdict` describes only the fresh independent verifier of retained working-tree edits. If that verifier passed, report `passed` even when a separate controller validation or CI failure remains; represent the separate gate failure through status and `blocking_reasons`. Never mark verified repairs as verifier-blocked merely because the controller still owns the broader full-validation decision.
+The `verification.verdict` describes the fresh independent verifier of retained working-tree edits. Report validation commands and conclusions accurately, without treating unrelated local noise as a defect in the reviewed change.
 
 For provider evidence actually used, copy documentation URLs/timestamps and skill name/revision pairs exactly from the catalogs. Candidate domains do not require documentation records when provider evidence was unnecessary. Return only schema-conforming JSON.
-"""
-
-
-def correction_prompt(
-    *,
-    skill_path: Path,
-    pr: dict[str, Any],
-    changed_files_path: Path,
-    prior_result: Path,
-    validation_evidence: Path,
-) -> str:
-    return f"""Use the autonomous PR review skill at {skill_path / 'SKILL.md'}.
-
-Resume the completed review for this exact pull request. This is a focused final-validation correction, not a new review.
-
-Immutable controller inputs:
-- PR: {pr['url']}
-- PR number: {pr['number']}
-- base SHA: {pr['baseRefOid']}
-- head SHA: {pr['headRefOid']}
-- exact original PR changed-files list: {changed_files_path}
-- previous contract-valid orchestrator result: {prior_result}
-- trusted controller validation failure evidence for the current reviewed working tree: {validation_evidence}
-
-The working tree exactly matches the previous result and may be clean or contain an uncommitted repair. Fix the validation failure at its cause. Do not restart the three specialist reviews and do not broaden the review.
-
-Preserve the proven repair unless the validation evidence disproves it. Never weaken tests, types, lint, validation, authorization, error handling, dependency policy, or CI configuration. Run the smallest focused reproduction and relevant checks after editing.
-
-After correcting the repair, spawn one fresh read-only verifier sub-agent with the raw original PR diff, current working-tree diff, and validation evidence. Reconcile any proven verifier finding yourself.
-
-Return a complete updated JSON result using the original result schema. It must describe the final working tree exactly and retain still-valid review evidence. If the proposed repair is unnecessary or unsafe, revert it completely and return `clean` only when the original PR has no actionable issue; otherwise return `blocked` with a precise reason. Never commit, push, comment, or change Git configuration or history.
-"""
-
-
-def result_contract_correction_prompt(
-    *,
-    skill_path: Path,
-    pr: dict[str, Any],
-    changed_files_path: Path,
-    invalid_result: Path,
-    contract_errors: Path,
-) -> str:
-    return f"""Use the autonomous PR review skill at {skill_path / 'SKILL.md'}.
-
-Correct the structured result for this exact completed review. This is a focused result-contract correction, not a new review.
-
-Immutable controller inputs:
-- PR: {pr['url']}
-- PR number: {pr['number']}
-- base SHA: {pr['baseRefOid']}
-- head SHA: {pr['headRefOid']}
-- exact original PR changed-files list: {changed_files_path}
-- previous schema-valid but contract-invalid result: {invalid_result}
-- deterministic contract errors: {contract_errors}
-
-Do not restart specialist reviews or broaden the investigation. Reconcile the prior JSON with the actual working tree and the contract errors. Preserve already proven repairs and evidence. The `verification.verdict` reports only the fresh verifier's verdict on retained edits; controller validation and CI are separate gates represented through status and blocking reasons.
-
-Do not edit code unless the contract errors prove an unverified repair cannot be retained safely; in that case, revert only that unverified repair and report the resulting working tree exactly. Never commit, push, comment, or change Git configuration or history.
-
-Return one complete schema-conforming JSON object that accurately describes the final working tree.
 """
 
 
@@ -1141,13 +1039,15 @@ def run_codex_result(
         config["model"],
         "--config",
         f"model_reasoning_effort={json.dumps(config['reasoning_effort'])}",
-        *isolated_shell_config(),
+        *isolated_shell_config(
+            workspace, config.get("validation_environment", {})
+        ),
     ]
     if repairs_allowed:
         command.extend(
             [
                 "--config",
-                "sandbox_workspace_write.network_access=false",
+                "sandbox_workspace_write.network_access=true",
                 "--config",
                 "sandbox_workspace_write.exclude_slash_tmp=true",
                 "--config",
@@ -1166,7 +1066,11 @@ def run_codex_result(
         ]
     )
     git_config_before = (workspace / ".git" / "config").read_bytes()
-    runner.run(command, env=codex_environment(), log_output=False)
+    runner.run(
+        command,
+        env=codex_environment(workspace, config.get("validation_environment", {})),
+        log_output=False,
+    )
     if (workspace / ".git" / "config").read_bytes() != git_config_before:
         raise ReviewFailure("orchestrator changed local Git configuration")
     if runner.run(["git", "rev-parse", "HEAD"], cwd=workspace).stdout.strip() != pr["headRefOid"]:
@@ -1183,36 +1087,20 @@ def validate_orchestrator_result(
     docs_manifest: Path,
     skills_manifest: Path,
 ) -> dict[str, Any]:
-    skill_path = Path(config["skill_path"])
-    contract = runner.run(
-        [
-            sys.executable,
-            str(skill_path / "scripts" / "review_contract.py"),
-            "--result",
-            str(output),
-            "--base",
-            pr["baseRefOid"],
-            "--head",
-            pr["headRefOid"],
-            "--changed-files",
-            str(changed_files_path),
-            "--docs-manifest",
-            str(docs_manifest),
-            "--skills-manifest",
-            str(skills_manifest),
-        ],
-        check=False,
-    )
-    if contract.returncode != 0:
-        detail = (contract.stdout or "result contract validation failed").strip()
-        raise ResultContractFailure(detail[:20_000])
     result = load_json(output)
-    actual = workspace_changes(runner, workspace)
-    reported = set(result.get("changed_files", []))
-    if actual != reported:
-        raise ReviewFailure("orchestrator changed-file report does not match the working tree")
+    actual = sorted(workspace_changes(runner, workspace))
     if actual:
-        reject_protected_agent_edits(sorted(actual), config)
+        reject_protected_agent_edits(actual, config)
+        result["status"] = (
+            "repaired_blocked"
+            if result.get("status") in {"blocked", "repaired_blocked"}
+            else "repaired"
+        )
+    elif result.get("status") in {"repaired", "repaired_blocked"}:
+        result["status"] = "blocked" if result.get("blocking_reasons") else "clean"
+    result["reviewed_base_sha"] = pr["baseRefOid"]
+    result["reviewed_head_sha"] = pr["headRefOid"]
+    result["changed_files"] = actual
     return result
 
 
@@ -1227,9 +1115,10 @@ def run_orchestrator(
     skills_manifest: Path,
     review_context: Path,
     ci_context: Path,
-    validation_evidence: Path,
     ai_files_manifest: Path | None,
     repairs_allowed: bool,
+    validation_commands: list[list[str]],
+    validation_env: dict[str, str],
 ) -> dict[str, Any]:
     skill_path = Path(config["skill_path"])
     canonical_output = run_dir / "orchestrator-result.json"
@@ -1248,89 +1137,14 @@ def run_orchestrator(
             skills_manifest=skills_manifest,
             review_context=review_context,
             ci_context=ci_context,
-            validation_evidence=validation_evidence,
             ai_files_manifest=ai_files_manifest,
             repairs_allowed=repairs_allowed,
+            validation_commands=validation_commands,
+            validation_env=validation_env,
         ),
         repairs_allowed=repairs_allowed,
     )
-    iteration = 0
-    seen_errors: set[tuple[str, str]] = set()
-    while True:
-        try:
-            result = validate_orchestrator_result(
-                runner,
-                config,
-                workspace,
-                pr,
-                output,
-                changed_files_path,
-                docs_manifest,
-                skills_manifest,
-            )
-            if output != canonical_output:
-                canonical_output.write_bytes(output.read_bytes())
-            return result
-        except ResultContractFailure as error:
-            result_hash = hashlib.sha256(output.read_bytes()).hexdigest()
-            error_key = (str(error), result_hash)
-            if error_key in seen_errors:
-                raise ReviewFailure("orchestrator made no progress correcting its result contract") from error
-            seen_errors.add(error_key)
-            iteration += 1
-            runner.log(f"Orchestrator result failed its semantic contract; continuing correction {iteration}")
-            errors_path = run_dir / f"orchestrator-result-contract-errors-{iteration}.txt"
-            errors_path.write_text(str(error) + "\n")
-            prior_output = output
-            output = run_dir / f"orchestrator-result-contract-correction-{iteration}.json"
-            run_codex_result(
-                runner,
-                config,
-                workspace,
-                pr,
-                output,
-                result_contract_correction_prompt(
-                    skill_path=skill_path,
-                    pr=pr,
-                    changed_files_path=changed_files_path,
-                    invalid_result=prior_output,
-                    contract_errors=errors_path,
-                ),
-                repairs_allowed=repairs_allowed,
-            )
-
-
-def run_correction_orchestrator(
-    runner: Runner,
-    config: dict[str, Any],
-    workspace: Path,
-    pr: dict[str, Any],
-    run_dir: Path,
-    iteration: int,
-    changed_files_path: Path,
-    docs_manifest: Path,
-    skills_manifest: Path,
-    prior_result: Path,
-    validation_evidence: Path,
-) -> tuple[dict[str, Any], Path]:
-    skill_path = Path(config["skill_path"])
-    output = run_dir / f"orchestrator-result-correction-{iteration}.json"
-    run_codex_result(
-        runner,
-        config,
-        workspace,
-        pr,
-        output,
-        correction_prompt(
-            skill_path=skill_path,
-            pr=pr,
-            changed_files_path=changed_files_path,
-            prior_result=prior_result,
-            validation_evidence=validation_evidence,
-        ),
-        repairs_allowed=True,
-    )
-    result = validate_orchestrator_result(
+    return validate_orchestrator_result(
         runner,
         config,
         workspace,
@@ -1340,7 +1154,6 @@ def run_correction_orchestrator(
         docs_manifest,
         skills_manifest,
     )
-    return result, output
 
 
 def workspace_changes(runner: Runner, workspace: Path) -> set[str]:
@@ -1349,189 +1162,31 @@ def workspace_changes(runner: Runner, workspace: Path) -> set[str]:
     return {path for path in tracked + untracked if path}
 
 
-def workspace_fingerprint(runner: Runner, workspace: Path) -> dict[str, str]:
-    fingerprint: dict[str, str] = {}
-    for relative in sorted(workspace_changes(runner, workspace)):
-        path = workspace / relative
-        if path.is_symlink():
-            raise ReviewFailure(f"workspace change is a symlink: {relative}")
-        fingerprint[relative] = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else "<deleted-or-non-file>"
-    return fingerprint
-
-
 def assert_clean_workspace(runner: Runner, workspace: Path, context: str) -> None:
     changed = workspace_changes(runner, workspace)
     if changed:
         raise ReviewFailure(f"{context} mutated the review checkout: {', '.join(sorted(changed))}")
 
 
-def collect_project_commands(
+def run_setup_commands(
     runner: Runner,
     workspace: Path,
     commands: list[list[str]],
-    markers: list[str],
     environment_overrides: dict[str, str] | None = None,
-    attempts: int = 1,
-) -> tuple[str, bool, str]:
-    outputs: list[str] = []
-    last_failure = "validation failed"
-    for attempt in range(1, attempts + 1):
-        combined = ""
-        failed = False
-        for command in commands:
-            result = runner.run(
-                command,
-                cwd=workspace,
-                env=validation_environment(environment_overrides),
-                check=False,
-            )
-            combined += result.stdout or ""
-            if result.returncode != 0:
-                failed = True
-                last_failure = f"command failed ({result.returncode}): {command[0]}"
-                break
-        missing = [marker for marker in markers if marker not in combined]
-        if missing:
-            failed = True
-            last_failure = f"validation success marker not found: {missing[0]}"
-        outputs.append(f"=== attempt {attempt}/{attempts} ===\n{combined}")
-        if not failed:
-            return "".join(outputs), True, ""
-        if attempt < attempts:
-            runner.log(f"Validation attempt {attempt}/{attempts} failed; retrying the full configured validation")
-    return "".join(outputs), False, last_failure
-
-
-def run_project_commands(
-    runner: Runner,
-    workspace: Path,
-    commands: list[list[str]],
-    markers: list[str],
-    environment_overrides: dict[str, str] | None = None,
-    attempts: int = 1,
+    *,
+    repository_workspace: Path | None = None,
 ) -> str:
-    output, passed, failure = collect_project_commands(
-        runner,
-        workspace,
-        commands,
-        markers,
-        environment_overrides,
-        attempts,
-    )
-    if not passed:
-        raise ReviewFailure(failure)
-    return output
-
-
-def write_validation_evidence(
-    run_dir: Path,
-    iteration: int,
-    pr: dict[str, Any],
-    setup_commands: list[list[str]],
-    validation_commands: list[list[str]],
-    success_markers: list[str],
-    validation_environment_values: dict[str, str],
-    setup_output: str,
-    validation_output: str,
-    status: str = "passed",
-    failure: str = "",
-) -> Path:
-    setup_path = run_dir / f"setup-output-{iteration}.log"
-    validation_path = run_dir / f"validation-output-{iteration}.log"
-    setup_path.write_text(setup_output)
-    validation_path.write_text(validation_output)
-    evidence = {
-        "version": 1,
-        "completed_at": utc_now().isoformat(),
-        "base_sha": pr["baseRefOid"],
-        "head_sha": pr["headRefOid"],
-        "setup_commands": setup_commands,
-        "validation_commands": validation_commands,
-        "validation_environment": validation_environment_values,
-        "success_markers": success_markers,
-        "setup_output_path": str(setup_path),
-        "setup_output_sha256": hashlib.sha256(setup_path.read_bytes()).hexdigest(),
-        "validation_output_path": str(validation_path),
-        "validation_output_sha256": hashlib.sha256(validation_path.read_bytes()).hexdigest(),
-        "status": status,
-        "failure": failure,
-    }
-    path = run_dir / f"validation-evidence-{iteration}.json"
-    path.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n")
-    return path
-
-
-def validate_final_result_with_corrections(
-    runner: Runner,
-    config: dict[str, Any],
-    workspace: Path,
-    pr: dict[str, Any],
-    run_dir: Path,
-    changed_files_path: Path,
-    docs_manifest: Path,
-    skills_manifest: Path,
-    validation_commands: list[list[str]],
-    success_markers: list[str],
-    validation_env: dict[str, str],
-    result: dict[str, Any],
-    corrections_allowed: bool,
-) -> dict[str, Any]:
-    result_path = run_dir / "orchestrator-result.json"
-    iteration = 0
-    seen_failures: set[tuple[str, str]] = set()
-    while True:
-        iteration += 1
-        reviewed_fingerprint = workspace_fingerprint(runner, workspace)
-        validation_output, passed, failure = collect_project_commands(
-            runner,
-            workspace,
-            validation_commands,
-            success_markers,
-            validation_env,
+    outputs: list[str] = []
+    for command in commands:
+        result = runner.run(
+            command,
+            cwd=workspace,
+            env=validation_environment(
+                environment_overrides, workspace=repository_workspace
+            ),
         )
-        if workspace_fingerprint(runner, workspace) != reviewed_fingerprint:
-            raise ReviewFailure("final validation changed the reviewed working tree")
-        evidence = write_validation_evidence(
-            run_dir,
-            iteration,
-            pr,
-            [],
-            validation_commands,
-            success_markers,
-            validation_env,
-            "",
-            validation_output,
-            "passed" if passed else "failed",
-            failure,
-        )
-        if passed:
-            return result
-        if not corrections_allowed:
-            raise ReviewFailure(f"final validation failed: {failure}")
-        failure_key = (
-            hashlib.sha256(validation_output.encode()).hexdigest(),
-            hashlib.sha256(json.dumps(reviewed_fingerprint, sort_keys=True).encode()).hexdigest(),
-        )
-        if failure_key in seen_failures:
-            raise ReviewFailure(f"reviewer made no progress on a repeated validation failure: {failure}")
-        seen_failures.add(failure_key)
-        runner.log(f"Final validation failed; continuing focused correction {iteration}")
-        result, result_path = run_correction_orchestrator(
-            runner,
-            config,
-            workspace,
-            pr,
-            run_dir,
-            iteration,
-            changed_files_path,
-            docs_manifest,
-            skills_manifest,
-            result_path,
-            evidence,
-        )
-        if result["status"] in {"blocked", "clean"} and workspace_fingerprint(runner, workspace) == reviewed_fingerprint:
-            reasons = result.get("blocking_reasons") or [failure]
-            raise ReviewFailure(f"reviewer could not produce a validated repair: {reasons[0]}")
+        outputs.append(result.stdout or "")
+    return "".join(outputs)
 
 
 def commit_repair(runner: Runner, workspace: Path, pr: dict[str, Any]) -> str:
@@ -1591,7 +1246,6 @@ def format_review_comment(
     *,
     original_head: str,
     final_head: str,
-    validation_commands: list[list[str]],
     simplification: dict[str, Any] | None = None,
 ) -> str:
     status = result["status"]
@@ -1603,7 +1257,7 @@ def format_review_comment(
         outcome = "I could not safely complete this PR without guessing about behavior or scope."
     elif status == "repaired":
         heading = "## Autonomous review: fixed and safe to merge"
-        outcome = "I found proven issues, fixed them on this PR branch, and the controller re-ran full validation."
+        outcome = "I found proven issues, fixed them on this PR branch, and validated the repairs with the repository's own tooling."
     else:
         heading = "## Autonomous review: safe to merge"
         outcome = "I reviewed the PR and found no actionable issue that warranted a code change."
@@ -1646,10 +1300,18 @@ def format_review_comment(
             lines.append(f"- **{_comment_text(repair.get('title'), 180)}** ({label}): {_comment_text(repair.get('evidence'), 500)}")
 
     if status != "blocked":
-        lines.extend(["", "### Validation"])
-        for command in validation_commands:
-            lines.append(f"- `{' '.join(command)}` passed")
         verification = result.get("verification") or {}
+        lines.extend(["", "### Agent validation"])
+        reported_commands = verification.get("commands", [])
+        if reported_commands:
+            for command in reported_commands:
+                lines.append(f"- `{_comment_text(command, 300)}`")
+        elif final_head == original_head:
+            lines.append("- Exact-head GitHub CI was green when this review started.")
+        else:
+            lines.append(
+                "- The agent completed its validation lifecycle; GitHub CI remains authoritative for the pushed head."
+            )
         if verification.get("performed"):
             lines.append(f"- Fresh verifier sub-agent: {_comment_text(verification.get('summary'), 500)}")
 
@@ -1876,7 +1538,6 @@ def run_simplification_phase(
     pr: dict[str, Any],
     run_dir: Path,
     validation_commands: list[list[str]],
-    success_markers: list[str],
     validation_env: dict[str, str],
     *,
     apply: bool,
@@ -1914,7 +1575,7 @@ def run_simplification_phase(
     changed_files_path.write_text("".join(f"{path}\n" for path in changed_files))
 
     edits_allowed = apply and project.get("mode", "repair") == "repair"
-    result, result_path = run_simplifier_orchestrator(
+    result, _ = run_simplifier_orchestrator(
         runner,
         config | project,
         workspace,
@@ -1922,33 +1583,20 @@ def run_simplification_phase(
         phase_dir,
         changed_files_path,
         edits_allowed,
+        validation_commands,
+        validation_env,
     )
     original_head = pr["headRefOid"]
-    if result["status"] in {"simplified", "simplified_blocked"}:
-        if not edits_allowed:
-            raise ReviewFailure("simplifier edited files without controller authorization")
-        result, _ = validate_simplifier_changes_until_green(
-            runner,
-            config | project,
-            workspace,
-            pr,
-            phase_dir,
-            changed_files_path,
-            validation_commands,
-            success_markers,
-            validation_env,
-            result,
-            result_path,
-        )
-    else:
-        assert_clean_workspace(runner, workspace, "non-editing simplifier result")
-
-    if result["status"] in {"simplified", "simplified_blocked"}:
+    actual_changes = workspace_changes(runner, workspace)
+    if actual_changes and not edits_allowed:
+        raise ReviewFailure("simplifier edited files without controller authorization")
+    if actual_changes:
         local_head = commit_simplification(runner, workspace, pr)
         pr = dict(pr)
         pr["headRefOid"] = local_head
         reason = "local_simplification_checkpoint"
     else:
+        assert_clean_workspace(runner, workspace, "non-editing simplifier result")
         reason = "simplification_complete"
     state = record_simplification_state(
         state_root,
@@ -1968,6 +1616,7 @@ def execute(
     apply: bool,
     force: bool = False,
     operation: str = "review",
+    progress: GitHubProgress | None = None,
 ) -> int:
     config, _ = load_configuration(config_path)
     project = select_project(config, project_name)
@@ -1991,6 +1640,11 @@ def execute(
             raise ReviewFailure("another review is already running for this PR") from error
 
         repository = project["repository"]
+        if progress is not None:
+            progress.phase(
+                "Checking pull request",
+                "Confirming repository policy, pull-request state, and the exact head SHA.",
+            )
         source_repository = json.loads(
             runner.run(["gh", "repo", "view", "--json", "nameWithOwner"], cwd=Path(project["source_path"])).stdout
         )["nameWithOwner"]
@@ -2003,12 +1657,29 @@ def execute(
         remote_input_head = pr["headRefOid"]
         if operation == "review" and not force and review_is_current(state_root, project_name, pr):
             runner.log(f"Skipping PR #{pr_number}; head and PR context were already reviewed")
+            if progress is not None:
+                progress.finish(
+                    "complete",
+                    "Already reviewed",
+                    "This exact pull-request state already has a current review.",
+                )
             return 0
         if operation == "review" and not force and legacy_head_was_reviewed(state_root, project_name, pr):
             record_review_state(state_root, project_name, pr, "legacy-reviewed")
             runner.log(f"Skipping PR #{pr_number}; migrated prior review state for this head")
+            if progress is not None:
+                progress.finish(
+                    "complete",
+                    "Already reviewed",
+                    "A prior review for this exact head was migrated into current state.",
+                )
             return 0
 
+        if progress is not None:
+            progress.phase(
+                "Checking exact-head CI",
+                "Verifying that GitHub CI is green for the exact pull-request head.",
+            )
         ci_context = capture_ci_context(
             runner,
             config | project,
@@ -2019,6 +1690,11 @@ def execute(
         )
         require_green_github_ci(ci_context)
 
+        if progress is not None:
+            progress.phase(
+                "Preparing isolated workspace",
+                "Preparing dependencies and an exact-SHA controller workspace.",
+            )
         source_path = Path(project["source_path"])
         workspace = safe_workspace(Path(config["workspace_root"]), project_name, source_path)
         prepare_workspace(
@@ -2034,11 +1710,21 @@ def execute(
         )
         setup_commands = project.get("setup_commands", [])
         validation_commands = project["validation_commands"]
-        success_markers = project.get("validation_success_markers", [])
         validation_env = project.get("validation_environment", {})
-        setup_output = run_project_commands(runner, workspace, setup_commands, [], validation_env)
+        run_setup_commands(
+            runner,
+            workspace,
+            setup_commands,
+            validation_env,
+            repository_workspace=workspace,
+        )
         assert_clean_workspace(runner, workspace, "dependency setup")
         if operation == "simplify":
+            if progress is not None:
+                progress.phase(
+                    "Simplifying implementation",
+                    "Inspecting the PR for behavior-preserving reuse, maintainability, and efficiency improvements.",
+                )
             pr, simplification_state = run_simplification_phase(
                 runner,
                 config,
@@ -2048,13 +1734,17 @@ def execute(
                 pr,
                 run_dir,
                 validation_commands,
-                success_markers,
                 validation_env,
                 apply=apply,
                 force=force,
             )
             final_head = pr["headRefOid"]
             if final_head != remote_input_head:
+                if progress is not None:
+                    progress.phase(
+                        "Publishing simplification",
+                        "Pushing the verified simplification commit with lease protection.",
+                    )
                 push_final_head(runner, workspace, pr, expected_remote_head=remote_input_head)
                 pr = fetch_pr_at_head(runner, repository, pr_number, final_head)
                 carry_simplification_state_to_head(
@@ -2070,7 +1760,21 @@ def execute(
                     "operation": "simplify",
                 },
             )
-            return 2 if simplification_state["status"] in {"blocked", "simplified_blocked"} else 0
+            blocked = simplification_state["status"] in {
+                "blocked",
+                "simplified_blocked",
+            }
+            if progress is not None:
+                progress.finish(
+                    "blocked" if blocked else "complete",
+                    "Simplification blocked" if blocked else "Simplification complete",
+                    (
+                        "A concrete blocker remains; inspect the recorded simplification result."
+                        if blocked
+                        else "The simplification command completed and any verified commit was published."
+                    ),
+                )
+            return 2 if blocked else 0
 
         changed_files, diff = changed_files_and_diff(runner, workspace, pr["baseRefOid"], pr["headRefOid"])
         if len(changed_files) > int(project.get("max_changed_files", 200)):
@@ -2106,21 +1810,12 @@ def execute(
             controller_login,
             github_head_sha=remote_input_head,
         )
-        validation_evidence = write_validation_evidence(
-            run_dir,
-            0,
-            pr,
-            setup_commands,
-            validation_commands,
-            success_markers,
-            validation_env,
-            setup_output,
-            "",
-            "passed",
-            "GitHub CI passed for the exact reviewed head; local validation runs only if the reviewer edits code.",
-        )
-
         repairs_allowed = apply and project.get("mode", "repair") == "repair"
+        if progress is not None:
+            progress.phase(
+                "Reviewing with specialists",
+                "Running behavior/contracts, security/provider, and implementation-quality review passes.",
+            )
         result = run_orchestrator(
             runner,
             config | project,
@@ -2132,40 +1827,25 @@ def execute(
             skills_manifest,
             review_context,
             ci_context,
-            validation_evidence,
             ai_files_manifest,
             repairs_allowed,
+            validation_commands,
+            validation_env,
         )
         validate_docs_manifest(config | project, docs_manifest, candidate_domains)
 
         original_head = pr["headRefOid"]
         final_head = original_head
-        if result["status"] in {"repaired", "repaired_blocked"}:
-            if not repairs_allowed:
-                raise ReviewFailure("orchestrator repaired files without controller authorization")
-        else:
-            assert_clean_workspace(runner, workspace, "non-repair orchestrator result")
-
-        if result["status"] in {"repaired", "repaired_blocked"}:
-            result = validate_final_result_with_corrections(
-                runner,
-                config | project,
-                workspace,
-                pr,
-                run_dir,
-                changed_files_path,
-                docs_manifest,
-                skills_manifest,
-                validation_commands,
-                success_markers,
-                validation_env,
-                result,
-                corrections_allowed=repairs_allowed,
-            )
-            if result["status"] in {"repaired", "repaired_blocked"}:
-                final_head = commit_repair(runner, workspace, pr)
-            else:
-                assert_clean_workspace(runner, workspace, "reverted reviewer repair")
+        actual_changes = workspace_changes(runner, workspace)
+        if actual_changes and not repairs_allowed:
+            raise ReviewFailure("orchestrator repaired files without controller authorization")
+        if actual_changes:
+            if progress is not None:
+                progress.phase(
+                    "Publishing agent repairs",
+                    "Committing the agent-validated repair before the lease-protected push.",
+                )
+            final_head = commit_repair(runner, workspace, pr)
         else:
             assert_clean_workspace(runner, workspace, "final non-repair result")
 
@@ -2186,11 +1866,15 @@ def execute(
             pr = fetch_pr(runner, repository, pr_number)
             if pr.get("headRefOid") != remote_input_head:
                 raise ReviewFailure("PR head changed during the atomic review")
+        if progress is not None:
+            progress.phase(
+                "Publishing review result",
+                "Recording the exact-head result and updating the authoritative review comment.",
+            )
         comment = format_review_comment(
             result,
             original_head=original_head,
             final_head=final_head,
-            validation_commands=validation_commands,
             simplification=None,
         )
         current_before_comment = fetch_pr(runner, repository, pr_number)
@@ -2217,6 +1901,12 @@ def execute(
         write_summary(run_dir, summary)
 
         if result["status"] in {"blocked", "repaired_blocked"}:
+            if progress is not None:
+                progress.finish(
+                    "blocked",
+                    "Review blocked",
+                    "The review completed, but a concrete decision or unresolved validation blocker remains.",
+                )
             if project.get("telegram_notifications_enabled", False):
                 try:
                     event_path = enqueue_notification(
@@ -2248,6 +1938,12 @@ def execute(
                 except (NotificationFailure, OSError, ValueError):
                     runner.log("Telegram blocker notification was queued for retry")
             return 2
+        if progress is not None:
+            progress.finish(
+                "complete",
+                "Review complete",
+                "The authoritative review result has been published on this pull request.",
+            )
         return 0
 
 
@@ -2259,12 +1955,50 @@ def main() -> int:
     parser.add_argument("--apply", action="store_true", help="Allow verified repairs to be committed and pushed")
     parser.add_argument("--force", action="store_true", help="Review even when this exact PR state was already handled")
     parser.add_argument("--operation", choices=("review", "simplify"), default="review")
+    parser.add_argument("--progress-delivery")
+    parser.add_argument("--command-comment-id", type=int)
     args = parser.parse_args()
+    progress: GitHubProgress | None = None
     try:
-        return execute(args.config, args.project, args.pr, args.apply, args.force, args.operation)
+        if args.progress_delivery or args.command_comment_id:
+            if not args.progress_delivery or not args.command_comment_id:
+                raise ReviewFailure("progress delivery and command comment id must be provided together")
+            config, _ = load_configuration(args.config)
+            project = select_project(config, args.project)
+            progress = GitHubProgress(
+                repository=project["repository"],
+                pr_number=args.pr,
+                delivery=args.progress_delivery,
+                operation=args.operation,
+                command_comment_id=args.command_comment_id,
+                enabled=project.get("github_progress_enabled", True),
+                heartbeat_seconds=int(
+                    project.get("github_progress_heartbeat_seconds", 900)
+                ),
+            )
+            progress.acknowledge_queued()
+            progress.start_heartbeat()
+        return execute(
+            args.config,
+            args.project,
+            args.pr,
+            args.apply,
+            args.force,
+            args.operation,
+            progress,
+        )
     except ReviewFailure as error:
+        if progress is not None:
+            progress.finish(
+                "blocked",
+                "Controller stopped",
+                "The command stopped at a concrete precondition or safety blocker. Check the worker log for details.",
+            )
         print(f"BLOCKED: {error}", file=sys.stderr)
         return 2
+    finally:
+        if progress is not None:
+            progress.stop_heartbeat()
 
 
 if __name__ == "__main__":

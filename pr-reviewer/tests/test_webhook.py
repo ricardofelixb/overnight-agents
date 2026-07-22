@@ -20,12 +20,32 @@ from webhook import DeliveryQueue, WebhookApplication, signature_is_valid
 class FakeQueue:
     def __init__(self) -> None:
         self.jobs: dict[str, dict] = {}
+        self.acknowledged: list[str] = []
 
     def enqueue(self, delivery: str, value: dict) -> bool:
         if delivery in self.jobs:
             return False
         self.jobs[delivery] = value
         return True
+
+    def acknowledge(self, value: dict) -> None:
+        self.acknowledged.append(value["delivery"])
+
+
+class FakeProgress:
+    def __init__(self) -> None:
+        self.acknowledged = 0
+        self.phases: list[str] = []
+        self.finished: list[str] = []
+
+    def acknowledge_queued(self) -> None:
+        self.acknowledged += 1
+
+    def phase(self, phase: str, _detail: str) -> None:
+        self.phases.append(phase)
+
+    def finish(self, status: str, _phase: str, _detail: str) -> None:
+        self.finished.append(status)
 
 
 class WebhookTests(unittest.TestCase):
@@ -68,6 +88,7 @@ class WebhookTests(unittest.TestCase):
                 "pull_request": {"url": "https://api.github.test/pulls/17"},
             },
             "comment": {
+                "id": 991,
                 "body": body,
                 "author_association": association,
                 "user": {"login": author},
@@ -91,6 +112,8 @@ class WebhookTests(unittest.TestCase):
         self.assertEqual((status, body["status"]), (202, "queued"))
         self.assertEqual(queue.jobs["delivery-1"]["pr_number"], 17)
         self.assertEqual(queue.jobs["delivery-1"]["operation"], "review")
+        self.assertEqual(queue.jobs["delivery-1"]["command_comment_id"], 991)
+        self.assertEqual(queue.acknowledged, ["delivery-1"])
         self.assertTrue(queue.jobs["delivery-1"]["force"])
         _, duplicate = application.handle(
             "issue_comment",
@@ -140,6 +163,47 @@ class WebhookTests(unittest.TestCase):
             (processing / "delivery.json").write_text(json.dumps({"delivery": "delivery"}))
             queue = DeliveryQueue(root, ROOT / "review.py", ROOT / "config.json", True, root / "worker.log")
             self.assertTrue((queue.pending / "delivery.json").exists())
+
+    def test_worker_passes_progress_identity_to_both_operations(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            queue = DeliveryQueue(
+                root,
+                ROOT / "review.py",
+                ROOT / "config.json",
+                True,
+                root / "worker.log",
+            )
+            job = {
+                "version": 2,
+                "delivery": "delivery-progress",
+                "project": "example",
+                "repository": "trusted/example",
+                "pr_number": 17,
+                "action": "issue_comment:review_command",
+                "operation": "review",
+                "command_comment_id": 991,
+                "force": True,
+                "progress": {"enabled": True, "heartbeat_seconds": 900},
+            }
+            self.assertTrue(queue.enqueue("delivery-progress", job))
+            progress = FakeProgress()
+            with mock.patch(
+                "webhook.progress_from_job", return_value=progress
+            ), mock.patch(
+                "webhook.subprocess.run",
+                return_value=mock.Mock(returncode=0),
+            ) as execute:
+                path = queue.pending / "delivery-progress.json"
+                queue._run_job(path)
+
+            command = execute.call_args.args[0]
+            self.assertIn("--progress-delivery", command)
+            self.assertIn("delivery-progress", command)
+            self.assertIn("--command-comment-id", command)
+            self.assertIn("991", command)
+            self.assertEqual(progress.acknowledged, 1)
+            self.assertEqual(progress.phases, ["Starting worker"])
 
     def test_env_setup_preserves_existing_values_and_is_private(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

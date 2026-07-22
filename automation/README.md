@@ -1,0 +1,17 @@
+# Shared automation lifecycle
+
+`worktrees.py` owns reusable linked-worktree preparation and teardown for automation controllers.
+
+Controllers supply repository-relative setup and cleanup commands. The repository remains the source of truth for project-specific provisioning such as dependency installation, isolated service deployments, environment synchronization, and seeding.
+
+The shared controller layer guarantees that:
+
+- the configured source checkout is never switched or reset;
+- automation runs from a linked worktree based on the latest remote base branch;
+- dirty automation branches are preserved for resume;
+- unrelated or legacy workspaces are quarantined;
+- lifecycle hooks cannot escape the worktree;
+- management tokens are loaded only for cleanup from a private controller-owned file;
+- terminally clean worktrees and their local automation branches are removed.
+
+The management-token file contains only the raw token and must have mode `0600`. It is never copied into the worktree or inherited by the coding agent.

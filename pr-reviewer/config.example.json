@@ -24,6 +24,8 @@
     "simplify_human_prs": true,
     "simplification_skip_head_patterns": ["code-simplify/*", "code-organize/*"],
     "telegram_notifications_enabled": true,
+    "github_progress_enabled": true,
+    "github_progress_heartbeat_seconds": 900,
     "review_comment_commands": ["/review"],
     "simplify_comment_commands": ["/simplify"],
     "review_comment_author_associations": ["OWNER", "MEMBER", "COLLABORATOR"],
@@ -61,7 +63,6 @@
       "allow_forks": false,
       "setup_commands": [["pnpm", "install", "--frozen-lockfile"]],
       "validation_commands": [["pnpm", "run", "validate"]],
-      "validation_success_markers": [],
       "mode": "repair"
     }
   ]

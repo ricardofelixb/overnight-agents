@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from github_progress import progress_from_job
 from review import ReviewFailure, load_configuration
 
 
@@ -93,6 +94,7 @@ class DeliveryQueue:
         self.apply = apply
         self.log_path = log_path
         self.lock = threading.Lock()
+        self.progress_lock = threading.Lock()
         self.wake = threading.Event()
         for directory in (self.pending, self.processing, self.completed):
             directory.mkdir(parents=True, exist_ok=True)
@@ -125,6 +127,29 @@ class DeliveryQueue:
         paths = sorted(self.pending.glob("*.json"), key=lambda path: (path.stat().st_mtime_ns, path.name))
         return paths[0] if paths else None
 
+    def _progress_log(self, message: str) -> None:
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.log_path.open("a") as stream:
+            stream.write(f"[{utc_now()}] {message}\n")
+
+    def _acknowledge_job(self, job: dict[str, Any]) -> None:
+        progress = progress_from_job(job, logger=self._progress_log)
+        if progress is None:
+            return
+        with self.progress_lock:
+            progress.acknowledge_queued()
+
+    def acknowledge(self, job: dict[str, Any]) -> None:
+        progress = progress_from_job(job)
+        if progress is None:
+            return
+        threading.Thread(
+            target=self._acknowledge_job,
+            args=(job,),
+            name=f"github-ack-{job.get('delivery', 'unknown')}",
+            daemon=True,
+        ).start()
+
     def _run_job(self, path: Path) -> None:
         processing = self.processing / path.name
         try:
@@ -133,6 +158,13 @@ class DeliveryQueue:
             return
         try:
             job = json.loads(processing.read_text())
+            self._acknowledge_job(job)
+            progress = progress_from_job(job, logger=self._progress_log)
+            if progress is not None:
+                progress.phase(
+                    "Starting worker",
+                    "The queued command is starting in the PR controller.",
+                )
             command = [
                 sys.executable,
                 str(self.reviewer),
@@ -148,6 +180,15 @@ class DeliveryQueue:
             if job.get("force") is True:
                 command.append("--force")
             command.extend(["--operation", str(job.get("operation", "review"))])
+            if progress is not None:
+                command.extend(
+                    [
+                        "--progress-delivery",
+                        str(job["delivery"]),
+                        "--command-comment-id",
+                        str(job["command_comment_id"]),
+                    ]
+                )
             self.log_path.parent.mkdir(parents=True, exist_ok=True)
             with self.log_path.open("a") as stream:
                 stream.write(
@@ -157,6 +198,12 @@ class DeliveryQueue:
                 stream.flush()
                 result = subprocess.run(command, stdout=stream, stderr=subprocess.STDOUT, check=False, text=True)
                 stream.write(f"[{utc_now()}] delivery={job['delivery']} exit={result.returncode}\n")
+            if progress is not None and result.returncode not in {0, 2}:
+                progress.finish(
+                    "failed",
+                    "Worker failed",
+                    "The controller stopped unexpectedly. Check the worker log for details.",
+                )
             atomic_json(
                 self.completed / processing.name,
                 job
@@ -255,8 +302,11 @@ class WebhookApplication:
         number = issue.get("number")
         if not isinstance(number, int) or number <= 0:
             raise WebhookFailure("pull request number is invalid")
+        comment_id = comment.get("id")
+        if not isinstance(comment_id, int) or comment_id <= 0:
+            raise WebhookFailure("command comment id is invalid")
         job = {
-            "version": 1,
+            "version": 2,
             "delivery": delivery,
             "received_at": utc_now(),
             "project": project["name"],
@@ -264,9 +314,18 @@ class WebhookApplication:
             "pr_number": number,
             "action": f"issue_comment:{operation}_command",
             "operation": operation,
+            "command_comment_id": comment_id,
             "force": True,
+            "progress": {
+                "enabled": project.get("github_progress_enabled", True),
+                "heartbeat_seconds": project.get(
+                    "github_progress_heartbeat_seconds", 900
+                ),
+            },
         }
         created = self.queue.enqueue(delivery, job)
+        if created:
+            self.queue.acknowledge(job)
         return 202, {"status": "queued" if created else "duplicate"}
 
 

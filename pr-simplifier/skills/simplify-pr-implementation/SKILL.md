@@ -19,17 +19,13 @@ Read [simplification-protocol.md](references/simplification-protocol.md) complet
    - `reuse-abstractions`: find existing utilities, components, hooks, types, and patterns that can replace duplication.
    - `quality-maintainability`: find redundant state, unnecessary indirection, copy-paste drift, parameter sprawl, unclear ownership, and brittle structure.
    - `efficiency-performance`: find avoidable repeated work, serializable concurrency, excess subscriptions/renders/queries, resource leaks, and needlessly expensive paths.
-   Retry transient specialist or verifier dispatch failures without restarting successful work. Infrastructure failure is not an implementation finding and must not consume a validation correction or become a blocker while recovery is still possible.
+   Retry transient specialist or verifier dispatch failures without restarting successful work. Infrastructure failure is not an implementation finding or blocker while recovery is still possible.
 4. Reconcile every recommendation against the code. The orchestrator alone edits. Apply only high-confidence, behavior-preserving improvements with a fully inspectable blast radius.
 5. Preserve public behavior, authorization, error semantics, persistence formats, migrations, external contracts, and the PR's intended outcome. Report a semantic defect or security concern for the final reviewer instead of silently redefining behavior.
 6. Prefer no change over stylistic churn. Do not broaden into an overall repository scan, dependency upgrade, migration, redesign, generated-file edit, CI-policy change, or unrelated cleanup.
-7. Run focused checks after editing. Spawn one fresh read-only verifier with the raw original PR diff and final working-tree diff. Revert or correct any change whose behavioral equivalence is not proven.
+7. Own the validation lifecycle. Run focused checks while iterating and the repository's configured validation using its declared toolchain when useful. Diagnose and fix relevant failures freely. Distinguish failures caused by your edits from unrelated, flaky, environmental, or already-green exact-head CI noise; unrelated failures must not erase an independently valid simplification. Spawn one fresh read-only verifier with the raw original PR diff and final working-tree diff. Revert or correct any change whose behavioral equivalence is not proven.
 8. Report every inspected repository file in `reviewed_files`; include every supplied PR changed file.
 
-Never commit, push, comment, approve, merge, delete branches, alter Git configuration, or expose credentials. A deterministic controller owns those actions and full validation. When this skill changes code, the controller validates the result and may create and push one lease-protected commit; this skill never creates that commit itself.
+Never commit, push, comment, approve, merge, delete branches, alter Git configuration, or expose credentials. A minimal controller owns authorization, protected-file checks, commit/push mechanics, lease safety, progress, and cleanup. It does not rerun validation or launch a correction pass. When this skill changes code, the controller may create and push one lease-protected commit; this skill never creates that commit itself.
 
 Return only one JSON object conforming to [orchestrator-result.schema.json](references/orchestrator-result.schema.json).
-
-## Correct a controller validation failure
-
-When the controller supplies a prior contract-valid result and exact validation failure evidence, resume the existing working-tree simplification. Do not rerun the three specialists or broaden scope. Repair the simplification at its cause or revert the unsafe improvement, run focused checks, spawn one fresh verifier, and return a complete updated result describing the final working tree. Never weaken validation to retain an edit.

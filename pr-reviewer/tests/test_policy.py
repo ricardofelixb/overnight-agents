@@ -150,6 +150,38 @@ class PolicyTests(unittest.TestCase):
         self.assertIn("example: simplify_human_prs must be boolean", errors)
         self.assertIn("example: simplification_skip_head_patterns must be non-empty strings", errors)
 
+    def test_github_progress_policy_is_typed_and_bounded(self) -> None:
+        config = {
+            "version": 1,
+            "skill_path": "review-skill",
+            "simplifier_skill_path": "simplifier-skill",
+            "workspace_root": "workspaces",
+            "state_root": "state",
+            "docs_catalog": "docs.json",
+            "skills_lock": "skills.json",
+            "telegram_env": ".env",
+            "webhook_env": ".env",
+            "defaults": {
+                "github_progress_enabled": "yes",
+                "github_progress_heartbeat_seconds": 30,
+            },
+            "projects": [{
+                "name": "example",
+                "source_path": "/tmp/example",
+                "repository": "trusted/example",
+                "base_branch": "main",
+                "allowed_head_patterns": ["*"],
+                "allowed_authors": [],
+                "validation_commands": [["true"]],
+            }],
+        }
+        errors = validate_config(config, Path("x"))
+        self.assertIn("example: github_progress_enabled must be boolean", errors)
+        self.assertIn(
+            "example: github_progress_heartbeat_seconds must be between 60 and 3600",
+            errors,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

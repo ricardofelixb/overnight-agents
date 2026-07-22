@@ -16,15 +16,12 @@ sys.path.insert(0, str(ROOT))
 
 from review import (
     ReviewFailure,
-    ResultContractFailure,
     Runner,
     capture_ai_files_snapshot,
     capture_ci_context,
     capture_review_context,
     carry_simplification_state_to_head,
-    collect_project_commands,
     commit_simplification,
-    correction_prompt,
     current_simplification_state,
     fetch_pr_at_head,
     format_review_comment,
@@ -34,13 +31,13 @@ from review import (
     push_final_head,
     record_simplification_state,
     record_review_state,
+    repository_runtime_path,
     require_green_github_ci,
     reject_policy_changes,
     reject_protected_agent_edits,
-    result_contract_correction_prompt,
     review_is_current,
     run_orchestrator,
-    run_project_commands,
+    run_setup_commands,
     run_simplification_phase,
     simplification_is_skipped,
     simplification_prompt,
@@ -48,10 +45,7 @@ from review import (
     upsert_review_comment,
     validate_docs_manifest,
     validate_orchestrator_result,
-    validate_final_result_with_corrections,
     validate_skill_lock,
-    workspace_fingerprint,
-    write_validation_evidence,
 )
 
 
@@ -106,20 +100,6 @@ class ReviewSafetyTests(unittest.TestCase):
             prepare_workspace(runner, workspace, source, "trusted/example", 1, "main", head, head)
             self.assertEqual(self.git("rev-parse", "HEAD", cwd=workspace), head)
             self.assertEqual(self.git("status", "--porcelain", cwd=workspace), "")
-
-    def test_workspace_fingerprint_refuses_symlink_changes(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            workspace = Path(temporary)
-            target = workspace / "target.txt"
-            target.write_text("sensitive\n")
-            (workspace / "link.txt").symlink_to(target)
-            runner = mock.Mock()
-            runner.run.side_effect = [
-                subprocess.CompletedProcess([], 0, "link.txt\n", ""),
-                subprocess.CompletedProcess([], 0, "", ""),
-            ]
-            with self.assertRaisesRegex(ReviewFailure, "symlink"):
-                workspace_fingerprint(runner, workspace)
 
     def test_incomplete_no_checkout_workspace_is_quarantined_and_reprovisioned(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -192,15 +172,18 @@ class ReviewSafetyTests(unittest.TestCase):
             "skills_manifest": root / "skills.json",
             "review_context": root / "context.json",
             "ci_context": root / "ci-context.json",
-            "validation_evidence": root / "validation.json",
             "ai_files_manifest": root / "ai-files.json",
             "repairs_allowed": True,
+            "validation_commands": [["pnpm", "run", "validate"]],
+            "validation_env": {"NODE_OPTIONS": "--max-old-space-size=8192"},
         })
         self.assertIn("Spawn the three named specialist sub-agents concurrently", prompt)
         self.assertIn("pre-existed at the base", prompt)
         self.assertIn(str(root / "context.json"), prompt)
         self.assertIn(str(root / "ci-context.json"), prompt)
-        self.assertIn("validation gate as a primary finding", prompt)
+        self.assertIn("You own validation", prompt)
+        self.assertIn('[["pnpm", "run", "validate"]]', prompt)
+        self.assertIn("will not rerun validation or launch a correction cycle", prompt)
         self.assertIn("repairs allowed: true", prompt)
         self.assertIn("trusted menus, not mandatory context", prompt)
         self.assertIn("Do not open every skill or document", prompt)
@@ -209,58 +192,7 @@ class ReviewSafetyTests(unittest.TestCase):
         self.assertIn("verification.verdict", prompt)
         self.assertIn("fresh independent verifier", prompt)
 
-    def test_correction_prompt_resumes_without_restarting_specialists(self) -> None:
-        root = Path("/tmp/reviewer-test")
-        prompt = correction_prompt(
-            skill_path=root / "skill",
-            pr={"url": "https://example.test/pr/1", "number": 1, "baseRefOid": "a" * 40, "headRefOid": "b" * 40},
-            changed_files_path=root / "changed.txt",
-            prior_result=root / "result.json",
-            validation_evidence=root / "validation.json",
-        )
-        self.assertIn("focused final-validation correction, not a new review", prompt)
-        self.assertIn("Do not restart the three specialist reviews", prompt)
-        self.assertIn(str(root / "result.json"), prompt)
-        self.assertIn(str(root / "validation.json"), prompt)
-        self.assertIn("spawn one fresh read-only verifier", prompt)
-
-    def test_result_contract_correction_is_bounded_and_result_only(self) -> None:
-        root = Path("/tmp/reviewer-test")
-        prompt = result_contract_correction_prompt(
-            skill_path=root / "skill",
-            pr={"url": "https://example.test/pr/1", "number": 1, "baseRefOid": "a" * 40, "headRefOid": "b" * 40},
-            changed_files_path=root / "changed.txt",
-            invalid_result=root / "invalid.json",
-            contract_errors=root / "errors.txt",
-        )
-        self.assertIn("focused result-contract correction, not a new review", prompt)
-        self.assertIn("Do not restart specialist reviews", prompt)
-        self.assertIn("verification.verdict", prompt)
-        self.assertIn(str(root / "invalid.json"), prompt)
-        self.assertIn(str(root / "errors.txt"), prompt)
-
-    def test_semantic_result_contract_failure_is_typed(self) -> None:
-        runner = mock.Mock()
-        runner.run.return_value = subprocess.CompletedProcess(
-            [],
-            1,
-            "repaired_blocked result requires passed verification\n",
-            "",
-        )
-        with self.assertRaisesRegex(ResultContractFailure, "passed verification"):
-            validate_orchestrator_result(
-                runner,
-                {"skill_path": "/tmp/skill"},
-                Path("/tmp/workspace"),
-                {"baseRefOid": "a" * 40, "headRefOid": "b" * 40},
-                Path("/tmp/result.json"),
-                Path("/tmp/changed.txt"),
-                Path("/tmp/docs.json"),
-                Path("/tmp/skills.json"),
-            )
-        self.assertFalse(runner.run.call_args.kwargs["check"])
-
-    def test_orchestrator_self_corrects_one_semantic_result_failure(self) -> None:
+    def test_orchestrator_runs_once_without_controller_correction_cycle(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             runner = mock.Mock()
@@ -277,10 +209,7 @@ class ReviewSafetyTests(unittest.TestCase):
                 mock.patch("review.run_codex_result", side_effect=write_result) as run_codex,
                 mock.patch(
                     "review.validate_orchestrator_result",
-                    side_effect=[
-                        ResultContractFailure("verifier verdict mismatch"),
-                        {"status": "repaired"},
-                    ],
+                    return_value={"status": "repaired"},
                 ) as validate,
             ):
                 result = run_orchestrator(
@@ -301,19 +230,17 @@ class ReviewSafetyTests(unittest.TestCase):
                     root / "skills.json",
                     root / "review.json",
                     root / "ci.json",
-                    root / "validation.json",
                     None,
                     True,
+                    [["pnpm", "run", "validate"]],
+                    {},
                 )
             self.assertEqual(result, {"status": "repaired"})
-            self.assertEqual(run_codex.call_count, 2)
-            self.assertEqual(validate.call_count, 2)
+            self.assertEqual(run_codex.call_count, 1)
+            self.assertEqual(validate.call_count, 1)
             canonical = json.loads((root / "orchestrator-result.json").read_text())
-            self.assertEqual(
-                canonical["source"],
-                "orchestrator-result-contract-correction-1.json",
-            )
-            runner.log.assert_called_once()
+            self.assertEqual(canonical["source"], "orchestrator-result.json")
+            runner.log.assert_not_called()
 
     def test_simplification_prompt_is_exact_sha(self) -> None:
         root = Path("/tmp/reviewer-test")
@@ -328,11 +255,60 @@ class ReviewSafetyTests(unittest.TestCase):
             pr=pr,
             changed_files_path=root / "changed.txt",
             edits_allowed=True,
+            validation_commands=[["pnpm", "run", "validate"]],
+            validation_env={},
         )
         self.assertIn("three named read-only specialist sub-agents concurrently", prompt)
         self.assertIn("base SHA: " + "a" * 40, prompt)
         self.assertIn("head SHA: " + "b" * 40, prompt)
         self.assertIn("edits allowed: true", prompt)
+        self.assertIn("You own validation", prompt)
+        self.assertIn("will not rerun the suite", prompt)
+
+    def test_repository_runtime_uses_declared_node_version(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            (workspace / ".nvmrc").write_text("24.16.0\n")
+            runtime = (
+                root
+                / ".local/share/fnm/node-versions/v24.16.0/installation/bin"
+            )
+            runtime.mkdir(parents=True)
+            (runtime / "node").touch()
+            with mock.patch("review.Path.home", return_value=root):
+                path = repository_runtime_path(workspace, "/usr/bin:/bin")
+            self.assertEqual(path, f"{runtime}:/usr/bin:/bin")
+
+    def test_controller_uses_working_tree_as_result_authority(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = root / "result.json"
+            output.write_text(
+                json.dumps(
+                    {
+                        "status": "blocked",
+                        "changed_files": ["wrong.ts"],
+                        "blocking_reasons": ["product decision"],
+                    }
+                )
+            )
+            with mock.patch(
+                "review.workspace_changes", return_value={"src/fixed.ts"}
+            ):
+                result = validate_orchestrator_result(
+                    mock.Mock(),
+                    {"protected_agent_edit_patterns": []},
+                    root / "workspace",
+                    {"baseRefOid": "a" * 40, "headRefOid": "b" * 40},
+                    output,
+                    root / "changed.txt",
+                    root / "docs.json",
+                    root / "skills.json",
+                )
+            self.assertEqual(result["status"], "repaired_blocked")
+            self.assertEqual(result["changed_files"], ["src/fixed.ts"])
     def test_human_pr_simplification_is_default_and_automation_branch_skips(self) -> None:
         project: dict[str, object] = {}
         self.assertIsNone(simplification_is_skipped({"headRefName": "feature/import"}, project))
@@ -491,9 +467,7 @@ class ReviewSafetyTests(unittest.TestCase):
                 "repository": "trusted/example",
                 "validation_commands": [["true"]],
                 "setup_commands": [],
-                "validation_success_markers": [],
                 "validation_environment": {},
-                "validation_attempts": 1,
                 "mode": "repair",
                 "protected_policy_patterns": [],
             }
@@ -508,6 +482,8 @@ class ReviewSafetyTests(unittest.TestCase):
             with mock.patch("review.changed_files_and_diff", return_value=(["src/a.ts"], "diff")), mock.patch(
                 "review.assert_clean_workspace"
             ), mock.patch(
+                "review.workspace_changes", return_value=set()
+            ), mock.patch(
                 "review.run_simplifier_orchestrator",
                 return_value=(result, root / "result.json"),
             ) as orchestrate:
@@ -520,7 +496,6 @@ class ReviewSafetyTests(unittest.TestCase):
                     pr,
                     run_dir,
                     [["true"]],
-                    [],
                     {},
                     apply=True,
                 )
@@ -535,7 +510,6 @@ class ReviewSafetyTests(unittest.TestCase):
                     pr,
                     run_dir,
                     [["true"]],
-                    [],
                     {},
                     apply=True,
                 )
@@ -607,10 +581,9 @@ class ReviewSafetyTests(unittest.TestCase):
             clean,
             original_head="a" * 40,
             final_head="a" * 40,
-            validation_commands=[["pnpm", "run", "validate"]],
         )
         self.assertIn("safe to merge", clean_comment)
-        self.assertIn("pnpm run validate", clean_comment)
+        self.assertIn("Exact-head GitHub CI was green", clean_comment)
         repaired = clean | {
             "status": "repaired",
             "repairs": [{
@@ -624,11 +597,11 @@ class ReviewSafetyTests(unittest.TestCase):
             repaired,
             original_head="a" * 40,
             final_head="b" * 40,
-            validation_commands=[["pnpm", "run", "validate"]],
         )
         self.assertIn("fixed and safe to merge", repaired_comment)
         self.assertIn("pre-existing", repaired_comment)
         self.assertIn("Repair commit", repaired_comment)
+        self.assertIn("GitHub CI remains authoritative", repaired_comment)
         repaired_blocked = repaired | {
             "status": "repaired_blocked",
             "blocking_reasons": ["product decision required"],
@@ -637,17 +610,15 @@ class ReviewSafetyTests(unittest.TestCase):
             repaired_blocked,
             original_head="a" * 40,
             final_head="b" * 40,
-            validation_commands=[["pnpm", "run", "validate"]],
         )
         self.assertIn("improved, decision still required", repaired_blocked_comment)
         self.assertIn("product decision required", repaired_blocked_comment)
-        self.assertIn("pnpm run validate", repaired_blocked_comment)
+        self.assertIn("GitHub CI remains authoritative", repaired_blocked_comment)
 
         simplified_comment = format_review_comment(
             clean,
             original_head="b" * 40,
             final_head="b" * 40,
-            validation_commands=[["pnpm", "run", "validate"]],
             simplification={
                 "status": "simplified",
                 "reason": "simplification_commit",
@@ -677,7 +648,6 @@ class ReviewSafetyTests(unittest.TestCase):
             result,
             original_head="a" * 40,
             final_head="a" * 40,
-            validation_commands=[["pnpm", "run", "validate"]],
         )
         self.assertIn("### Manual UI sanity checks", comment)
         self.assertIn("- [ ] Create an expense", comment)
@@ -731,123 +701,19 @@ class ReviewSafetyTests(unittest.TestCase):
         upsert_review_comment(updated, "trusted/example", pr, "<!-- overnight-agents:pr-reviewer -->\nnew")
         self.assertTrue(any("updateIssueComment" in " ".join(command) for command in updated.commands))
 
-    def test_validation_evidence_is_sha_bound_and_hashes_outputs(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            path = write_validation_evidence(
-                root,
-                0,
-                {"baseRefOid": "a" * 40, "headRefOid": "b" * 40},
-                [["pnpm", "install"]],
-                [["pnpm", "run", "validate"]],
-                ["complete"],
-                {"NODE_OPTIONS": "--max-old-space-size=8192"},
-                "installed\n",
-                "complete\n",
-            )
-            evidence = json.loads(path.read_text())
-            self.assertEqual(evidence["head_sha"], "b" * 40)
-            self.assertEqual(evidence["status"], "passed")
-            self.assertEqual(evidence["validation_environment"]["NODE_OPTIONS"], "--max-old-space-size=8192")
-            output = Path(evidence["validation_output_path"])
-            self.assertEqual(
-                evidence["validation_output_sha256"],
-                hashlib.sha256(output.read_bytes()).hexdigest(),
-            )
-
-    def test_validation_retries_the_complete_gate_once(self) -> None:
-        class RetryRunner:
-            def __init__(self) -> None:
-                self.calls = 0
-                self.messages: list[str] = []
-
-            def run(self, command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
-                self.calls += 1
-                return subprocess.CompletedProcess(
-                    command,
-                    1 if self.calls == 1 else 0,
-                    "transient failure\n" if self.calls == 1 else "all passed\n",
-                    "",
-                )
-
-            def log(self, message: str) -> None:
-                self.messages.append(message)
-
-        runner = RetryRunner()
-        output = run_project_commands(
-            runner,  # type: ignore[arg-type]
-            Path("/tmp"),
-            [["validate"]],
-            ["passed"],
-            attempts=2,
-        )
-        self.assertEqual(runner.calls, 2)
-        self.assertIn("transient failure", output)
-        self.assertIn("all passed", output)
-        self.assertEqual(len(runner.messages), 1)
-
-    def test_failed_validation_is_retained_as_repair_evidence(self) -> None:
-        class FailingRunner:
-            def run(self, command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
-                return subprocess.CompletedProcess(command, 1, "type error at src/example.ts:7\n", "")
-
-            def log(self, message: str) -> None:
-                del message
-
-        output, passed, failure = collect_project_commands(
-            FailingRunner(),  # type: ignore[arg-type]
-            Path("/tmp"),
-            [["validate"]],
-            [],
-        )
-        self.assertFalse(passed)
-        self.assertIn("type error at src/example.ts:7", output)
-        self.assertEqual(failure, "command failed (1): validate")
-
-    def test_failed_final_validation_is_corrected_then_revalidated(self) -> None:
+    def test_setup_commands_run_once(self) -> None:
         runner = mock.Mock()
-        runner.log = mock.Mock()
-        original = {"status": "repaired", "summary": "original"}
-        corrected = {"status": "repaired", "summary": "corrected"}
-        with (
-            mock.patch("review.workspace_fingerprint", return_value={"test.ts": "hash"}),
-            mock.patch(
-                "review.collect_project_commands",
-                side_effect=[
-                    ("type error", False, "command failed (1): validate"),
-                    ("all passed", True, ""),
-                ],
-            ) as collect,
-            mock.patch(
-                "review.write_validation_evidence",
-                side_effect=[Path("/tmp/validation-1.json"), Path("/tmp/validation-2.json")],
-            ),
-            mock.patch(
-                "review.run_correction_orchestrator",
-                return_value=(corrected, Path("/tmp/corrected-result.json")),
-            ) as correct,
-        ):
-            result = validate_final_result_with_corrections(
-                runner,
-                {},
-                Path("/tmp/workspace"),
-                {"baseRefOid": "a" * 40, "headRefOid": "b" * 40},
-                Path("/tmp/run"),
-                Path("/tmp/changed.txt"),
-                Path("/tmp/docs.json"),
-                Path("/tmp/skills.json"),
-                [["validate"]],
-                [],
-                {},
-                original,
-                corrections_allowed=True,
-            )
-        self.assertIs(result, corrected)
-        self.assertEqual(collect.call_count, 2)
-        correct.assert_called_once()
-        runner.log.assert_called_once_with(
-            "Final validation failed; continuing focused correction 1"
+        runner.run.return_value = subprocess.CompletedProcess([], 0, "installed\n", "")
+        output = run_setup_commands(
+            runner,
+            Path("/tmp"),
+            [["pnpm", "install"]],
+            {"NODE_OPTIONS": "--max-old-space-size=8192"},
+            repository_workspace=Path("/tmp"),
         )
+        self.assertEqual(output, "installed\n")
+        runner.run.assert_called_once()
+        self.assertNotEqual(runner.run.call_args.kwargs.get("check"), False)
 
     def test_pr_head_projection_is_polled_after_push(self) -> None:
         class ProjectionRunner:
@@ -896,6 +762,7 @@ class ReviewSafetyTests(unittest.TestCase):
             "commits": [],
             "comments": [
                 {"author": {"login": "controller"}, "body": "<!-- overnight-agents:pr-reviewer -->\nold"},
+                {"author": {"login": "controller"}, "body": "<!-- overnight-agents-progress:delivery-1 -->\nrunning"},
                 {"author": {"login": "trusted"}, "body": "Please verify the empty state"},
             ],
             "reviews": [],

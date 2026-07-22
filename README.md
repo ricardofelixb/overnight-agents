@@ -29,7 +29,7 @@ Executes one approved, behavior-preserving source-organization slice at a time f
 
 The organizer performs clean atomic refactors: it removes old paths and updates every repository-controlled caller without barrels, forwarding modules, aliases, compatibility shims, or legacy fallbacks. A reusable `codebase-organizer` skill defines canonical folder and filename patterns, while each project's persistent checklist defines its exact approved moves.
 
-Runs use an isolated controller-owned clone, a global and per-project enable switch, and one active organizer PR per project. The deterministic controller owns the definitive validation, commit, push, and PR creation. Organizer PRs can be reviewed explicitly with `/review`; they never launch another simplification pass automatically.
+Runs use an isolated controller-owned workspace, a global and per-project enable switch, and one active organizer PR per project. Projects may select the shared linked-worktree lifecycle and repository-owned setup and cleanup hooks. Exac uses its canonical `scripts/setup-worktree.sh` and `scripts/cleanup-worktree.sh`, so every organizer run gets an isolated expiring Convex deployment rather than inheriting the primary checkout's deployment. The deterministic controller owns the definitive validation, commit, push, PR creation, and terminal workspace cleanup. Organizer PRs can be reviewed explicitly with `/review`; they never launch another simplification pass automatically.
 
 `code-simplifier` and `codebase-organizer` share `state/maintenance.lock`, preventing overlapping scheduled maintenance even if both LaunchAgents are enabled.
 
@@ -39,6 +39,8 @@ Reviews an eligible pull request at an exact base/head pair after an authorized 
 
 The GitHub webhook subscribes only to `issue_comment`. The loopback-only receiver verifies `X-Hub-Signature-256`, requires a newly created comment on an open PR, authorizes the signed GitHub `OWNER`, `MEMBER`, or `COLLABORATOR` association, maps `/review` to only the reviewer and `/simplify` to only the PR simplifier, durably deduplicates the delivery, and processes jobs sequentially outside the HTTP request. Both commands fail closed before launching an agent unless GitHub CI is green for the exact PR head. Pushes, PR lifecycle events, CI events, reviews, ordinary comments, edited commands, comments on non-PR issues, and unauthorized commands never start a cycle. Dependabot remains excluded by policy.
 
+Every accepted command receives a best-effort 👀 reaction and one delivery-scoped progress comment. The shared progress reporter edits that comment at controller milestones and refreshes its timestamp every configured heartbeat interval instead of posting repeated replies. It records completion, a safety blocker, or an unexpected worker failure for both commands. Progress publishing is operational telemetry only: GitHub API or permission failures are logged and never change the underlying review or simplification result. The token used by `gh` needs `Issues: write` for the reaction; creating and updating the progress comment accepts `Issues: write` or `Pull requests: write`.
+
 ```text
 Authorized `/review` PR comment
   -> signed loopback webhook receiver
@@ -46,24 +48,23 @@ Authorized `/review` PR comment
   -> require green GitHub CI for the exact head
   -> exact-SHA PR controller
   -> behavior/contracts + security/provider + simplification/hygiene reviewer
-  -> fresh verifier
-  -> local validation only when the reviewer edits code
-  -> verified repair commit or idempotent PR summary
+  -> agent-owned validation and fresh verifier
+  -> lease-protected repair commit or idempotent PR summary
 
 Authorized `/simplify` PR comment
   -> same receiver, queue, CI gate, and exact-SHA controller
   -> PR simplifier only
-  -> full local validation when code changes
+  -> agent-owned validation and iteration
   -> lease-protected simplification commit (no review comment)
 ```
 
 Provider routing uses progressive disclosure. The controller detects broad candidate domains and verifies a trusted catalog of fresh, hashed skills and official documentation, but Codex opens only the smallest skill topic and document required by a concrete code question. Candidate domains do not require provider evidence when repository code, types, tests, and project rules are sufficient. Fresh documentation caches are reused without another network request.
 
-The orchestrator may edit but cannot commit, push, comment on GitHub, approve, merge, or delete branches. After edits it uses a fresh verifier sub-agent. A deterministic controller owns the exact-SHA workspace, checks the reported working-tree files, validates reviewer edits, and maintains one idempotent PR comment explaining either “safe to merge,” “fixed and safe to merge,” or the exact blocking decision. A clean read-only review relies on the exact-head green GitHub CI admission evidence instead of rerunning the same local gate. The user remains the final merger.
+The orchestrator may edit but cannot commit, push, comment on GitHub, approve, merge, or delete branches. It owns validation, may diagnose and fix failures freely, and uses a fresh verifier sub-agent after edits. The minimal controller owns authorization, the exact-SHA workspace, protected-file policy, commit/push mechanics, lease safety, progress publishing, and cleanup. It does not rerun validation, launch validation-correction agents, or reject work over semantic result-contract bookkeeping. GitHub CI on the pushed head remains authoritative, and the user remains the final merger.
 
 Reviewer workspaces are disposable controller-owned clones. First-run and interrupted `--no-checkout` clones are checked out before cleanliness is evaluated; contaminated or incomplete workspaces are moved to an auditable quarantine and replaced atomically. Successful or blocked results are cached by PR head and update timestamp for ordinary controller safety; every new authorized `/review` delivery intentionally requests a fresh cycle, even on the same SHA.
 
-Projects may define non-secret validation resource settings such as `NODE_OPTIONS` in `validation_environment`. Credential-like and critical shell variables are rejected, and repository commands never inherit arbitrary automation secrets.
+Projects provide validation commands and non-secret resource settings such as `NODE_OPTIONS` directly to the agent. Credential-like and critical shell variables are rejected. Agent and dependency-setup processes prefer the Node version declared by the repository's `.nvmrc` or `.node-version`, preventing the LaunchAgent's global PATH from silently selecting another runtime.
 
 The reviewer defaults to `repair`. `observe` remains available for a read-only dry run, while the local exac deployment uses `repair`: verified changes are pushed to the PR branch and manual merge remains in GitHub. Neither human pushes nor scheduled simplifier PR publication invokes the reviewer automatically; comment `/review` once the PR is ready.
 
@@ -73,7 +74,7 @@ A semantic blocker sends one deduplicated outbound Telegram notification with th
 
 `pr-simplifier/skills/simplify-pr-implementation` is an explicitly requested pass for eligible PRs. It binds work to exact base/head SHAs and uses three read-only specialists for reuse, maintainability, and efficiency; the orchestrator may retain only behavior-preserving improvements that pass an independent verifier. It is PR-slice scoped rather than folder scoped, and it does not certify correctness, recommend merging, or replace `pr-reviewer`.
 
-The two commands are intentionally independent. `/simplify` runs only the simplifier, requires full local validation for any edit, and pushes one lease-protected commit without posting a reviewer comment. `/review` runs only the correctness/security reviewer and posts its idempotent summary; it runs local validation only if it repairs code. Neither command automatically launches the other. Before any push, the controller verifies that the remote PR branch still equals the original GitHub head; the lease makes that comparison atomic, so a concurrent human push aborts publication instead of being overwritten.
+The two commands are intentionally independent. `/simplify` runs only the simplifier and `/review` runs only the correctness/security reviewer. Each agent owns its validation and may iterate until it considers the work ready; the controller does not repeat that work. Neither command automatically launches the other. Before any push, the controller verifies that the remote PR branch still equals the original GitHub head; the lease makes that comparison atomic, so a concurrent human push aborts publication instead of being overwritten.
 
 #### How the checklist works
 
@@ -169,6 +170,8 @@ Add `simplification.md` to `.gitignore`. Each run picks the next unchecked folde
 
    The hook subscribes only to `issue_comment`. Post `/review` for only a correctness/security review or `/simplify` for only a behavior-preserving simplification pass. Run either command after GitHub CI is green. A new authorized command intentionally starts a fresh exact-SHA job even if the same head was handled previously.
 
+   Progress feedback is enabled by default. Configure `github_progress_enabled` and `github_progress_heartbeat_seconds` in defaults or per project; the heartbeat interval must be between 60 and 3600 seconds.
+
 The weekly refresh uses isolated temporary clones. It promotes audited provider skills globally and runs `npx convex ai-files update` for each enabled Convex project, publishing a hashed guidance snapshot without modifying the configured source checkout.
 
 ## Requirements
@@ -198,7 +201,16 @@ PROJECTS=(
 
 Projects rotate round-robin. Disabled projects are skipped.
 
-`codebase-organizer/config.json` uses the same global/project enable model in JSON. Every project additionally supplies a private environment file, persistent checklist path, repository, base branch, and definitive validation command. The exac organizer uses `pnpm run validate`, which includes the full test suite and `convex dev --once`.
+`codebase-organizer/config.json` uses the same global/project enable model in JSON. Every project supplies a persistent checklist path, repository, base branch, and definitive validation command. Legacy clone workspaces also require a private environment file. A linked-worktree project instead configures repository-relative `setup_command` and `cleanup_command` arrays. It may provide a controller-only `management_token_file`; this file contains only the raw token, must have mode `0600`, and is exposed only to the cleanup hook. The exac organizer uses `pnpm run validate`, which includes the full test suite and `convex dev --once`.
+
+```json
+"workspace": {
+  "type": "linked-worktree",
+  "setup_command": ["scripts/setup-worktree.sh"],
+  "cleanup_command": ["scripts/cleanup-worktree.sh"],
+  "management_token_file": "/private/convex-management.token"
+}
+```
 
 The organization checklist uses one top-level item per correlated vertical slice:
 
@@ -227,6 +239,8 @@ The marker becomes complete only when the source refactor is ready and the contr
   "excluded_authors": ["dependabot[bot]", "app/dependabot"],
   "review_comment_commands": ["/review"],
   "simplify_comment_commands": ["/simplify"],
+  "github_progress_enabled": true,
+  "github_progress_heartbeat_seconds": 900,
   "review_comment_author_associations": ["OWNER", "MEMBER", "COLLABORATOR"],
   "allow_forks": false,
   "validation_commands": [["pnpm", "run", "validate"]],
@@ -236,32 +250,34 @@ The marker becomes complete only when the source refactor is ready and the contr
 
 Draft PRs remain ineligible even if someone comments `/review`. Cross-repository PRs remain blocked unless explicitly enabled, because a repair push must never target an untrusted fork. Provider skills and documentation are selected on demand from signed/fresh manifests rather than loaded eagerly.
 
-### Validation self-healing
+### Agent-owned validation
 
-The commands own their validation independently:
+Each command owns one complete review, edit, validation, and verification lifecycle:
 
 1. Require green GitHub CI for the exact input head before either agent starts.
-2. `/simplify` runs only the simplifier; if it edits code, the controller runs the full configured validation before committing or pushing.
-3. `/review` runs only the reviewer; a read-only result reuses the green exact-head CI evidence, while any repair must pass full local validation before it is committed or pushed.
-4. A failing locally changed tree returns to the responsible agent for focused correction and revalidation without a numeric attempt ceiling or another full discovery pass.
-5. Correction continues while it makes progress and stops only on green, an evidence-backed blocker, a changed remote head, or a repeated no-progress state.
-6. Never modify protected CI policy, weaken tests, or loosen types/lint to obtain green status.
+2. The agent receives the repository validation commands and safe environment settings.
+3. The agent runs focused or full validation, diagnoses failures, fixes relevant defects, and iterates as often as useful in the same lifecycle.
+4. The agent distinguishes failures caused by its edits from unrelated, flaky, environmental, or already-green exact-head CI failures.
+5. The controller trusts that judgment, records the agent's evidence, and never starts a second validation or JSON-correction cycle.
+6. The controller commits safe returned working-tree changes and pushes only with an exact-head lease; GitHub CI validates the new SHA.
 
 If the failure is external, transient, ambiguous, or unsafe to repair, the reviewer reports the precise blocker instead of guessing.
 
 ## Safety
 
 - Never switches or modifies the configured source checkout, even when it is dirty
-- Uses a dedicated simplifier clone and returns that clone to the default branch after clean runs
+- Uses controller-owned clones or linked worktrees without switching the configured source checkout
+- Lets repository-owned lifecycle hooks provision isolated external services for linked worktrees
+- Keeps controller management tokens out of agent-visible worktrees and removes terminally clean linked worktrees
 - Persists ignored checklists outside disposable automation clones
 - Requires private project environment files and ignored workspace symlinks
-- Verifies changes with linter/build before committing
+- Gives the agent the repository's validation commands and declared runtime
 - Keeps the last 30 log files, prunes older ones
 - Refuses PRs that alter trusted reviewer policy, workflow, or generated provider guidance; dependency manifests and lockfiles remain reviewable input but are immutable to the agents
 - Uses a dedicated clone and refuses dirty or overlapping review workspaces
 - Repairs only proven, bounded changes with unambiguous intended behavior, regardless of whether the defect is introduced or pre-existing
-- Fails closed on stale docs/skills, unsafe scope, stale SHAs, schema mismatch, or validation mutation
-- Never posts a clean result for a reproducible red validation gate; repairs must pass the full configured validation before being pushed
+- Fails closed on stale docs/skills, unsafe scope, stale SHAs, protected-file edits, or a changed remote head
+- Does not discard agent-verified changes because of unrelated local failures or result-contract formatting
 - Verifies webhook HMAC signatures and keeps the secret only in an ignored mode-`0600` environment file
 
 ## Manual run
@@ -332,7 +348,7 @@ tailscale funnel --https 8443 off
 - `code-simplifier/logs/` — simplifier run history
 - `codebase-organizer/logs/` — organizer run history
 - `codebase-organizer/state/checklists/` — persistent project organization checklists
-- `codebase-organizer/state/workspaces/` — isolated organizer clones
+- `codebase-organizer/state/workspaces/` — isolated organizer clones or linked worktrees
 - `codebase-organizer/state/pending/` — active organizer PR/item state
 - `pr-reviewer/logs/webhook.log` — receiver health and HTTP status lines; request bodies and signatures are never logged
 - `pr-reviewer/logs/webhook-worker.log` — queued review controller output

@@ -54,7 +54,7 @@ Each report must include inspected files, evidence, expected benefit, behavior-p
 5. Give a fresh verifier the raw base/head diff, final working-tree diff, relevant rules, and focused test evidence. Do not disclose specialist conclusions or intended improvements.
 6. Require the verifier to pass for any retained edit. Revert an edit completely if its equivalence is uncertain.
 
-Full repository validation remains the controller's responsibility. When it rejects a simplification, use the exact failure artifact in a focused correction continuation: preserve independently proven improvements, repair or revert the failing edit, and run a fresh verifier without rerunning the three specialist reviews. Never loosen a gate to make it green. Continue while evidence shows progress; stop only on green or a precise evidence-backed blocker. The controller publishes no simplifier edit until validation passes.
+Run repository validation within this same agent pass using the repository's declared toolchain and commands. Diagnose relevant failures and iterate while useful; never loosen a gate to make it green. Separate edit-caused failures from unrelated, flaky, or environmental failures, and report the commands run plus any remaining uncertainty. The controller trusts that judgment, publishes safe working-tree changes with an exact-head lease, and leaves final confirmation of the pushed SHA to GitHub CI.
 
 ## Result discipline
 

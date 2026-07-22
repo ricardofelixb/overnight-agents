@@ -146,6 +146,8 @@ def validate_config(config: dict[str, Any], config_path: Path) -> list[str]:
             errors.append(f"{name}: mode must be observe or repair")
         if not isinstance(merged.get("telegram_notifications_enabled", False), bool):
             errors.append(f"{name}: telegram_notifications_enabled must be boolean")
+        if not isinstance(merged.get("github_progress_enabled", True), bool):
+            errors.append(f"{name}: github_progress_enabled must be boolean")
         if not isinstance(merged.get("simplify_human_prs", True), bool):
             errors.append(f"{name}: simplify_human_prs must be boolean")
         skip_patterns = merged.get(
@@ -172,9 +174,12 @@ def validate_config(config: dict[str, Any], config_path: Path) -> list[str]:
             "docs_max_age_hours": (1, 168),
             "skill_max_age_days": (1, 31),
             "ai_files_max_age_days": (1, 31),
+            "github_progress_heartbeat_seconds": (60, 3600),
         }
         for field, (minimum, maximum) in numeric_ranges.items():
-            value = merged.get(field)
+            value = merged.get(
+                field, 900 if field == "github_progress_heartbeat_seconds" else None
+            )
             if not isinstance(value, int) or not minimum <= value <= maximum:
                 errors.append(f"{name}: {field} must be between {minimum} and {maximum}")
     for field in (

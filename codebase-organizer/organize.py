@@ -22,6 +22,7 @@ from typing import Any, TextIO
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
 SHARED_WORKSPACE_MODULE = REPO_ROOT / "code-simplifier" / "workspace.py"
+SHARED_WORKTREE_MODULE = REPO_ROOT / "automation" / "worktrees.py"
 SKILL_ROOT = SCRIPT_DIR / "skills" / "codebase-organizer"
 CHECKLIST_NAME = "organization.md"
 BRANCH_PREFIX = "code-organize"
@@ -48,6 +49,18 @@ def load_workspace_module() -> Any:
     )
     if not spec or not spec.loader:
         raise OrganizerFailure("could not load shared workspace module")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_worktree_module() -> Any:
+    spec = importlib.util.spec_from_file_location(
+        "organizer_shared_worktrees", SHARED_WORKTREE_MODULE
+    )
+    if not spec or not spec.loader:
+        raise OrganizerFailure("could not load shared worktree module")
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
@@ -95,7 +108,6 @@ def validate_config(config: dict[str, Any]) -> None:
             "source_path",
             "repository",
             "base_branch",
-            "environment_file",
             "checklist_file",
         ):
             if not isinstance(project.get(field), str) or not project[field]:
@@ -112,6 +124,36 @@ def validate_config(config: dict[str, Any]) -> None:
                 raise OrganizerFailure(
                     f"project {name} validation commands must be non-empty string arrays"
                 )
+        workspace = project.get("workspace")
+        if workspace is None:
+            if not isinstance(project.get("environment_file"), str) or not project[
+                "environment_file"
+            ]:
+                raise OrganizerFailure(f"project {name} requires environment_file")
+            continue
+        if not isinstance(workspace, dict):
+            raise OrganizerFailure(f"project {name} workspace must be an object")
+        if workspace.get("type") != "linked-worktree":
+            raise OrganizerFailure(
+                f"project {name} workspace type must be linked-worktree"
+            )
+        for field in ("setup_command", "cleanup_command"):
+            command = workspace.get(field)
+            if (
+                not isinstance(command, list)
+                or not command
+                or any(not isinstance(part, str) or not part for part in command)
+            ):
+                raise OrganizerFailure(
+                    f"project {name} workspace {field} must be a non-empty string array"
+                )
+        token_file = workspace.get("management_token_file")
+        if token_file is not None and (
+            not isinstance(token_file, str) or not token_file
+        ):
+            raise OrganizerFailure(
+                f"project {name} workspace management_token_file must be a path"
+            )
 
 
 def run(
@@ -278,6 +320,13 @@ def reconcile_pending(
         item_id = str(pending["item_id"])
     except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
         raise OrganizerFailure(f"invalid pending organizer state: {error}") from error
+    cleanup_workspace_path = pending.get("cleanup_workspace")
+    if cleanup_workspace_path is not None:
+        if not isinstance(cleanup_workspace_path, str) or not cleanup_workspace_path:
+            raise OrganizerFailure("invalid pending organizer cleanup workspace")
+        cleanup_workspace(project, Path(cleanup_workspace_path), stream)
+        pending.pop("cleanup_workspace")
+        atomic_write(pending_path, json.dumps(pending, indent=2, sort_keys=True) + "\n")
     result = run(
         [
             "gh",
@@ -543,8 +592,27 @@ def unique_branch(workspace: Path, item: ChecklistItem) -> str:
 
 
 def prepare_workspace(
-    project: dict[str, Any], config: dict[str, Any]
+    project: dict[str, Any], config: dict[str, Any], stream: TextIO
 ) -> dict[str, str | bool]:
+    workspace_config = project.get("workspace")
+    if isinstance(workspace_config, dict):
+        module = load_worktree_module()
+        try:
+            return module.prepare_linked_worktree(
+                source_path=Path(project["source_path"]),
+                workspace_root=Path(
+                    config.get("workspace_root", SCRIPT_DIR / "state" / "workspaces")
+                ),
+                project_name=project["name"],
+                base_branch=project["base_branch"],
+                branch_prefix=BRANCH_PREFIX,
+                checklist_file=Path(project["checklist_file"]),
+                checklist_name=CHECKLIST_NAME,
+                automation_label="organizer",
+                stream=stream,
+            )
+        except module.WorktreeFailure as error:
+            raise OrganizerFailure(str(error)) from error
     module = load_workspace_module()
     return module.prepare_workspace(
         source_path=Path(project["source_path"]),
@@ -559,6 +627,41 @@ def prepare_workspace(
         checklist_name=CHECKLIST_NAME,
         automation_label="organizer",
     )
+
+
+def setup_workspace(project: dict[str, Any], workspace: Path, stream: TextIO) -> None:
+    workspace_config = project.get("workspace")
+    if not isinstance(workspace_config, dict):
+        install_dependencies(workspace, stream)
+        return
+    module = load_worktree_module()
+    try:
+        module.run_setup_hook(
+            workspace, workspace_config["setup_command"], stream=stream
+        )
+    except module.WorktreeFailure as error:
+        raise OrganizerFailure(str(error)) from error
+
+
+def cleanup_workspace(
+    project: dict[str, Any], workspace: Path, stream: TextIO
+) -> None:
+    workspace_config = project.get("workspace")
+    if not isinstance(workspace_config, dict) or not workspace.exists():
+        return
+    token_path = workspace_config.get("management_token_file")
+    module = load_worktree_module()
+    try:
+        module.cleanup_linked_worktree(
+            source_path=Path(project["source_path"]),
+            workspace=workspace,
+            branch_prefix=BRANCH_PREFIX,
+            cleanup_command=workspace_config["cleanup_command"],
+            management_token_file=Path(token_path) if token_path else None,
+            stream=stream,
+        )
+    except module.WorktreeFailure as error:
+        raise OrganizerFailure(str(error)) from error
 
 
 def execute_project(
@@ -578,13 +681,13 @@ def execute_project(
     if not apply:
         return f"{project['name']}: next item is {item.item_id} — {item.title}"
 
-    prepared = prepare_workspace(project, config)
+    prepared = prepare_workspace(project, config, stream)
     workspace = Path(str(prepared["workspace"]))
     resuming = bool(prepared["resuming"])
     if resuming:
         branch = str(prepared["branch"])
     else:
-        install_dependencies(workspace, stream)
+        setup_workspace(project, workspace, stream)
         branch = unique_branch(workspace, item)
         git(workspace, "checkout", "-b", branch, stream=stream)
 
@@ -604,6 +707,7 @@ def execute_project(
 
     status = git(workspace, "status", "--porcelain").stdout.strip()
     if not status:
+        cleanup_workspace(project, workspace, stream)
         return f"{project['name']}: {item.item_id} required no source changes"
 
     commands = project["validation_commands"]
@@ -637,8 +741,12 @@ def execute_project(
         "url": url,
         "branch": branch,
         "created_at": now_iso(),
+        "cleanup_workspace": str(workspace),
     }
     pending_path = SCRIPT_DIR / "state" / "pending" / f"{project['name']}.json"
+    atomic_write(pending_path, json.dumps(pending, indent=2, sort_keys=True) + "\n")
+    cleanup_workspace(project, workspace, stream)
+    pending.pop("cleanup_workspace")
     atomic_write(pending_path, json.dumps(pending, indent=2, sort_keys=True) + "\n")
     return f"{project['name']}: created {url}"
 

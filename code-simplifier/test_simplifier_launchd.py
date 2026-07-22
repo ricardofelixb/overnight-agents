@@ -14,6 +14,15 @@ SPEC.loader.exec_module(MODULE)
 
 
 class SimplifierLaunchdTests(unittest.TestCase):
+    def test_agent_run_uses_and_cleans_an_isolated_local_convex_deployment(self) -> None:
+        script = Path(__file__).with_name("simplify.sh").read_text()
+        self.assertIn(
+            'scripts/setup-worktree.sh --convex-mode local',
+            script,
+        )
+        self.assertIn('trap cleanup_agent_convex EXIT', script)
+        self.assertIn('scripts/cleanup-worktree.sh', script)
+
     def test_daily_cron_schedule_becomes_exact_calendar_intervals(self) -> None:
         self.assertEqual(
             MODULE.calendar_intervals("0 1,7,13,19 * * *"),

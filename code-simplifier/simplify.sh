@@ -43,6 +43,19 @@ LOG_FILE="$LOG_DIR/simplify_${TIMESTAMP}.log"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"; }
 
+CONVEX_LIFECYCLE_ACTIVE=false
+cleanup_agent_convex() {
+  if [[ "$CONVEX_LIFECYCLE_ACTIVE" != "true" ]]; then
+    return
+  fi
+  CONVEX_LIFECYCLE_ACTIVE=false
+  if [[ -x "$PROJECT_PATH/scripts/cleanup-worktree.sh" ]]; then
+    "$PROJECT_PATH/scripts/cleanup-worktree.sh" >> "$LOG_FILE" 2>&1 || \
+      log "WARNING: failed to delete the worktree-local Convex deployment"
+  fi
+}
+trap cleanup_agent_convex EXIT
+
 # --- Pick next enabled project (round-robin, skipping disabled) ---
 if [[ -f "$STATE_FILE" ]]; then
   INDEX=$(cat "$STATE_FILE")
@@ -121,8 +134,9 @@ fi
 if [[ "$RESUMING_EXISTING_BRANCH" != "true" ]]; then
   log "Prepared latest origin/$DEFAULT_BRANCH in the isolated workspace"
 
-  # Install dependencies (so linters/builds reflect current state)
-  if [[ -f "pnpm-lock.yaml" ]]; then
+  # Repositories with the canonical worktree lifecycle install dependencies
+  # as part of their setup hook below.
+  if [[ -f "pnpm-lock.yaml" && ! -x "scripts/setup-worktree.sh" ]]; then
     pnpm install --frozen-lockfile >> "$LOG_FILE" 2>&1
     log "Installed dependencies (pnpm)"
   elif [[ -f "uv.lock" ]]; then
@@ -137,6 +151,13 @@ if [[ "$RESUMING_EXISTING_BRANCH" != "true" ]]; then
   fi
   git checkout -b "$BRANCH_NAME" >> "$LOG_FILE" 2>&1
   log "Created branch $BRANCH_NAME"
+fi
+
+if [[ -x "scripts/setup-worktree.sh" && -x "scripts/cleanup-worktree.sh" ]]; then
+  log "Preparing isolated worktree-local Convex deployment"
+  scripts/setup-worktree.sh --convex-mode local >> "$LOG_FILE" 2>&1
+  CONVEX_LIFECYCLE_ACTIVE=true
+  log "Prepared isolated worktree-local Convex deployment"
 fi
 
 # --- Build the prompt with substitutions ---
@@ -172,6 +193,8 @@ fi
 set -e
 
 log "Agent exited with code $EXIT_CODE"
+
+cleanup_agent_convex
 
 # --- Cleanup: return to default branch ---
 cd "$PROJECT_PATH"

@@ -89,7 +89,11 @@ class OrganizerTests(unittest.TestCase):
         del project["environment_file"]
         project["workspace"] = {
             "type": "linked-worktree",
-            "setup_command": ["scripts/setup-worktree.sh"],
+            "setup_command": [
+                "scripts/setup-worktree.sh",
+                "--convex-mode",
+                "local",
+            ],
             "cleanup_command": ["scripts/cleanup-worktree.sh"],
             "management_token_file": "/private/convex-management.token",
         }

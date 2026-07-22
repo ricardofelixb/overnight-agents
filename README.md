@@ -14,7 +14,7 @@ Works through your codebase folder-by-folder using a checklist (`simplification.
 
 Aggregates findings, fixes the code, verifies with linter/build, and opens a PR.
 
-Simplifier runs use controller-owned clones under `code-simplifier/state/workspaces/`. The configured source checkout is used only to discover the trusted origin URL, so local branches, staged files, and unfinished work are never switched, copied, or included in a simplification PR. A dirty interrupted `code-simplify/*` branch is resumed only inside the automation clone; unexpected workspace contamination is quarantined and replaced.
+Simplifier runs use controller-owned clones under `code-simplifier/state/workspaces/`. The configured source checkout is used only to discover the trusted origin URL, so local branches, staged files, and unfinished work are never switched, copied, or included in a simplification PR. Repositories exposing the canonical worktree hooks run `scripts/setup-worktree.sh --convex-mode local` before the agent and `scripts/cleanup-worktree.sh` afterward, giving every scheduled run its own `.convex/local` backend and deleting that state when the run finishes. A dirty interrupted `code-simplify/*` branch is resumed only inside the automation clone; unexpected workspace contamination is quarantined and replaced.
 
 Ignored automation state is stored outside the clone and symlinked into it. Each enabled project uses:
 
@@ -29,7 +29,7 @@ Executes one approved, behavior-preserving source-organization slice at a time f
 
 The organizer performs clean atomic refactors: it removes old paths and updates every repository-controlled caller without barrels, forwarding modules, aliases, compatibility shims, or legacy fallbacks. A reusable `codebase-organizer` skill defines canonical folder and filename patterns, while each project's persistent checklist defines its exact approved moves.
 
-Runs use an isolated controller-owned workspace, a global and per-project enable switch, and one active organizer PR per project. Projects may select the shared linked-worktree lifecycle and repository-owned setup and cleanup hooks. Exac uses its canonical `scripts/setup-worktree.sh` and `scripts/cleanup-worktree.sh`, so every organizer run gets an isolated expiring Convex deployment rather than inheriting the primary checkout's deployment. The deterministic controller owns the definitive validation, commit, push, PR creation, and terminal workspace cleanup. Organizer PRs can be reviewed explicitly with `/review`; they never launch another simplification pass automatically.
+Runs use an isolated controller-owned workspace, a global and per-project enable switch, and one active organizer PR per project. Projects may select the shared linked-worktree lifecycle and repository-owned setup and cleanup hooks. Exac uses its canonical `scripts/setup-worktree.sh --convex-mode local` and `scripts/cleanup-worktree.sh`, so every organizer run gets a private project-local Convex backend and state directory rather than inheriting or sharing a cloud deployment. The local backend stops after each command and its state is deleted during terminal worktree cleanup. The deterministic controller owns the definitive validation, commit, push, PR creation, and terminal workspace cleanup. Organizer PRs can be reviewed explicitly with `/review`; they never launch another simplification pass automatically.
 
 `code-simplifier` and `codebase-organizer` share `state/maintenance.lock`, preventing overlapping scheduled maintenance even if both LaunchAgents are enabled.
 
@@ -201,12 +201,12 @@ PROJECTS=(
 
 Projects rotate round-robin. Disabled projects are skipped.
 
-`codebase-organizer/config.json` uses the same global/project enable model in JSON. Every project supplies a persistent checklist path, repository, base branch, and definitive validation command. Legacy clone workspaces also require a private environment file. A linked-worktree project instead configures repository-relative `setup_command` and `cleanup_command` arrays. It may provide a controller-only `management_token_file`; this file contains only the raw token, must have mode `0600`, and is exposed only to the cleanup hook. The exac organizer uses `pnpm run validate`, which includes the full test suite and `convex dev --once`.
+`codebase-organizer/config.json` uses the same global/project enable model in JSON. Every project supplies a persistent checklist path, repository, base branch, and definitive validation command. Legacy clone workspaces also require a private environment file. A linked-worktree project instead configures repository-relative `setup_command` and `cleanup_command` arrays. Exac selects canonical worktree setup with `--convex-mode local`; the Convex CLI stores that run's backend under the worktree's ignored `.convex/local` directory, and cleanup deletes it before removing the worktree. Cloud mode remains available for human worktrees and may provide a controller-only `management_token_file`; this file contains only the raw token, must have mode `0600`, and is exposed only to the cleanup hook. The exac organizer uses `pnpm run validate`, which includes the full test suite and `convex dev --once` against that run's local deployment.
 
 ```json
 "workspace": {
   "type": "linked-worktree",
-  "setup_command": ["scripts/setup-worktree.sh"],
+  "setup_command": ["scripts/setup-worktree.sh", "--convex-mode", "local"],
   "cleanup_command": ["scripts/cleanup-worktree.sh"],
   "management_token_file": "/private/convex-management.token"
 }

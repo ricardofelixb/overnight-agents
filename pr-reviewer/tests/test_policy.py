@@ -121,6 +121,33 @@ class PolicyTests(unittest.TestCase):
             validate_config(config, Path("x")),
         )
 
+    def test_workspace_hooks_require_exact_setup_and_cleanup_commands(self) -> None:
+        config = {
+            "version": 1,
+            "skill_path": "skill",
+            "simplifier_skill_path": "simplifier-skill",
+            "workspace_root": "workspaces",
+            "state_root": "state",
+            "docs_catalog": "docs.json",
+            "skills_lock": "skills.json",
+            "telegram_env": ".env",
+            "webhook_env": ".env",
+            "projects": [{
+                "name": "example",
+                "source_path": "/tmp/example",
+                "repository": "trusted/example",
+                "base_branch": "main",
+                "allowed_head_patterns": ["*"],
+                "allowed_authors": [],
+                "workspace_hooks": {"setup_command": ["setup.sh"]},
+                "validation_commands": [["true"]],
+            }],
+        }
+        self.assertIn(
+            "example: workspace_hooks must contain setup_command and cleanup_command argv arrays",
+            validate_config(config, Path("x")),
+        )
+
     def test_simplification_policy_is_typed(self) -> None:
         config = {
             "version": 1,

@@ -2,6 +2,7 @@
 .env
 !pr-reviewer/.env.example
 config.sh
+code-simplifier/config.json
 logs/
 .rotation_index
 sheet-analyzer/

@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 
-MODULE_PATH = Path(__file__).resolve().parent.parent / "organize.py"
+MODULE_PATH = Path(__file__).resolve().parent.parent / "controller.py"
 SPEC = importlib.util.spec_from_file_location("codebase_organizer", MODULE_PATH)
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
@@ -31,6 +31,7 @@ class OrganizerTests(unittest.TestCase):
 
     def valid_config(self) -> dict[str, object]:
         return {
+            "version": 1,
             "enabled": True,
             "schedule": "30 2 * * *",
             "provider": "codex",
@@ -183,85 +184,20 @@ class OrganizerTests(unittest.TestCase):
             with self.assertRaisesRegex(MODULE.OrganizerFailure, "JSON object"):
                 MODULE.load_config(path)
 
-    def test_validation_corrections_continue_past_two_attempts_until_green(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            workspace = Path(temporary) / "workspace"
-            workspace.mkdir()
-            self.git("init", "-b", "main", cwd=workspace)
-            self.git("config", "user.email", "organizer@example.test", cwd=workspace)
-            self.git("config", "user.name", "Organizer Test", cwd=workspace)
-            source = workspace / "source.txt"
-            source.write_text("initial\n")
-            self.git("add", "source.txt", cwd=workspace)
-            self.git("commit", "-m", "initial", cwd=workspace)
-
-            original = "- [ ] **sales** — Align sales\n"
-            item = MODULE.first_unchecked_item(original)
-            assert item
-            checklist = Path(temporary) / "organization.md"
-            checklist.write_text(MODULE.completed_checklist_text(original, item))
-            validations = [
-                subprocess.CompletedProcess([], 1, f"failure {index}", "")
-                for index in range(3)
-            ] + [subprocess.CompletedProcess([], 0, "green", "")]
-            correction_count = 0
-
-            def fake_correction(*_args: object) -> subprocess.CompletedProcess[str]:
-                nonlocal correction_count
-                correction_count += 1
-                source.write_text(f"correction {correction_count}\n")
-                return subprocess.CompletedProcess([], 0, "", "")
-
-            with mock.patch.object(
-                MODULE, "run_validation", side_effect=validations
-            ) as validation, mock.patch.object(
-                MODULE, "run_agent", side_effect=fake_correction
-            ):
-                MODULE.validate_with_agent_corrections(
-                    {},
-                    workspace,
-                    item,
-                    original,
-                    checklist,
-                    [["pnpm", "run", "validate"]],
-                    mock.Mock(),
-                )
-
-            self.assertEqual(correction_count, 3)
-            self.assertEqual(validation.call_count, 4)
-
-    def test_validation_corrections_stop_when_agent_makes_no_progress(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            workspace = Path(temporary) / "workspace"
-            workspace.mkdir()
-            self.git("init", "-b", "main", cwd=workspace)
-            self.git("config", "user.email", "organizer@example.test", cwd=workspace)
-            self.git("config", "user.name", "Organizer Test", cwd=workspace)
-            self.git("commit", "--allow-empty", "-m", "initial", cwd=workspace)
-            original = "- [ ] **sales** — Align sales\n"
-            item = MODULE.first_unchecked_item(original)
-            assert item
-            checklist = Path(temporary) / "organization.md"
-            checklist.write_text(MODULE.completed_checklist_text(original, item))
-            failed = subprocess.CompletedProcess([], 1, "still failing", "")
-
-            with mock.patch.object(
-                MODULE, "run_validation", return_value=failed
-            ), mock.patch.object(
-                MODULE,
-                "run_agent",
-                return_value=subprocess.CompletedProcess([], 0, "", ""),
-            ):
-                with self.assertRaisesRegex(MODULE.OrganizerFailure, "no repository progress"):
-                    MODULE.validate_with_agent_corrections(
-                        {},
-                        workspace,
-                        item,
-                        original,
-                        checklist,
-                        [["pnpm", "run", "validate"]],
-                        mock.Mock(),
-                    )
+    def test_controller_does_not_own_validation_or_correction_cycles(self) -> None:
+        source = Path(MODULE.__file__).read_text()
+        self.assertNotIn("validate_with_agent_corrections", source)
+        self.assertNotIn("correction_prompt", source)
+        prompt = MODULE.agent_prompt(
+            workspace=Path("/tmp/workspace"),
+            base_branch="main",
+            branch="code-organize/sales",
+            item=MODULE.ChecklistItem(0, "sales", "Sales", "- [ ] **sales** — Sales"),
+            resuming=False,
+            validation_commands=[["pnpm", "run", "validate"]],
+        )
+        self.assertIn("own the definitive validation", prompt)
+        self.assertIn("fresh read-only verifier", prompt)
 
     def test_execute_project_publishes_one_validated_slice_end_to_end(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -312,10 +248,6 @@ class OrganizerTests(unittest.TestCase):
                 _prompt: str,
                 _stream: object,
             ) -> subprocess.CompletedProcess[str]:
-                self.git(
-                    "config", "user.email", "organizer@example.test", cwd=workspace
-                )
-                self.git("config", "user.name", "Organizer Test", cwd=workspace)
                 (workspace / "organized.txt").write_text("same behavior\n")
                 checklist.write_text(
                     checklist.read_text().replace("- [ ] **sales**", "- [x] **sales**")
@@ -344,10 +276,6 @@ class OrganizerTests(unittest.TestCase):
                 MODULE, "install_dependencies", return_value=None
             ), mock.patch.object(
                 MODULE, "run_agent", side_effect=fake_agent
-            ), mock.patch.object(
-                MODULE,
-                "run_validation",
-                return_value=subprocess.CompletedProcess([], 0, "green", ""),
             ), mock.patch.object(MODULE, "run", side_effect=fake_run):
                 message = MODULE.execute_project(
                     config, project, apply=True, stream=stream

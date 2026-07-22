@@ -7,7 +7,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from review import load_configuration
+from controller import load_configuration
 from telegram_notify import NotificationFailure, flush_pending
 
 

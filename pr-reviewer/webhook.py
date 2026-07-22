@@ -22,7 +22,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from github_progress import progress_from_job
-from review import ReviewFailure, load_configuration
+from controller import ReviewFailure, load_configuration
 
 
 MAX_BODY_BYTES = 2_000_000
@@ -403,7 +403,7 @@ def main() -> int:
         state_root = Path(config["state_root"])
         queue = DeliveryQueue(
             state_root,
-            Path(__file__).with_name("review.py"),
+            Path(__file__).with_name("controller.py"),
             args.config.resolve(),
             args.apply,
             Path(__file__).with_name("logs") / "webhook-worker.log",

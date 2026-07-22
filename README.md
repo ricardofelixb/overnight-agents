@@ -12,16 +12,18 @@ Works through your codebase folder-by-folder using a checklist (`simplification.
 2. **Code Quality** — flags redundant state, copy-paste, parameter sprawl, leaky abstractions
 3. **Efficiency** — catches N+1 patterns, missed concurrency, unnecessary work, memory leaks
 
-Aggregates findings, fixes the code, verifies with linter/build, and opens a PR.
+The orchestrator reconciles the findings, edits, validates with the repository's declared toolchain, and runs a fresh verifier. The minimal controller then enforces protected paths, commits the returned working tree, pushes, opens the PR, and tears down the workspace.
 
-Simplifier runs use controller-owned clones under `code-simplifier/state/workspaces/`. The configured source checkout is used only to discover the trusted origin URL, so local branches, staged files, and unfinished work are never switched, copied, or included in a simplification PR. Repositories exposing the canonical worktree hooks run `scripts/setup-worktree.sh --convex-mode local` before the agent and `scripts/cleanup-worktree.sh` afterward, giving every scheduled run its own `.convex/local` backend and deleting that state when the run finishes. A dirty interrupted `code-simplify/*` branch is resumed only inside the automation clone; unexpected workspace contamination is quarantined and replaced.
+Simplifier runs use the shared controller lifecycle under `automation/`. Projects may use a linked worktree with repository-owned setup and cleanup hooks or the shared dedicated-clone fallback. The configured source checkout is never switched or reset. Exac runs `scripts/setup-worktree.sh --convex-mode local` and `scripts/cleanup-worktree.sh`, giving each run its own `.convex/local` backend and deleting it afterward. Dirty interrupted `code-simplify/*` work is preserved for resume; unexpected workspaces are quarantined.
 
 Ignored automation state is stored outside the clone and symlinked into it. Each enabled project uses:
 
 - `code-simplifier/state/env/<project>.env.local` for private runtime configuration (mode `0600`)
 - `code-simplifier/state/checklists/<project>.md` when `simplification.md` is ignored rather than tracked
 
-The same private environment file can be configured for the PR reviewer through its per-project `environment_file`. Both controllers require `.env.local` to be ignored and refuse unmanaged or broadly readable environment files.
+The same private environment file can be configured for the PR reviewer through its per-project `environment_file`. Clone-based controllers require `.env.local` to be ignored and refuse unmanaged or broadly readable environment files. Linked-worktree projects instead delegate environment provisioning to the repository hook.
+
+Only one scheduled simplifier PR may be active per project. A merged PR advances the checklist; a closed-unmerged PR restores its exact checklist marker before another slice begins.
 
 ### codebase-organizer
 
@@ -29,7 +31,7 @@ Executes one approved, behavior-preserving source-organization slice at a time f
 
 The organizer performs clean atomic refactors: it removes old paths and updates every repository-controlled caller without barrels, forwarding modules, aliases, compatibility shims, or legacy fallbacks. A reusable `codebase-organizer` skill defines canonical folder and filename patterns, while each project's persistent checklist defines its exact approved moves.
 
-Runs use an isolated controller-owned workspace, a global and per-project enable switch, and one active organizer PR per project. Projects may select the shared linked-worktree lifecycle and repository-owned setup and cleanup hooks. Exac uses its canonical `scripts/setup-worktree.sh --convex-mode local` and `scripts/cleanup-worktree.sh`, so every organizer run gets a private project-local Convex backend and state directory rather than inheriting or sharing a cloud deployment. The local backend stops after each command and its state is deleted during terminal worktree cleanup. The deterministic controller owns the definitive validation, commit, push, PR creation, and terminal workspace cleanup. Organizer PRs can be reviewed explicitly with `/review`; they never launch another simplification pass automatically.
+Runs use an isolated controller-owned workspace, a global and per-project enable switch, and one active organizer PR per project. Projects may select the shared linked-worktree lifecycle and repository-owned setup and cleanup hooks. Exac uses its canonical `scripts/setup-worktree.sh --convex-mode local` and `scripts/cleanup-worktree.sh`, so every organizer run gets a private project-local Convex backend and state directory rather than inheriting or sharing a cloud deployment. The organizer agent owns focused checks, definitive validation, iteration, and a fresh verifier. The minimal controller owns protected-path checks, commit, push, PR creation, and terminal workspace cleanup. Organizer PRs can be reviewed explicitly with `/review`; they never launch another simplification pass automatically.
 
 `code-simplifier` and `codebase-organizer` share `state/maintenance.lock`, preventing overlapping scheduled maintenance even if both LaunchAgents are enabled.
 
@@ -99,7 +101,7 @@ Add `simplification.md` to `.gitignore`. Each run picks the next unchecked folde
 
    ```bash
    cp .env.example code-simplifier/.env
-   cp code-simplifier/config.example.sh code-simplifier/config.sh
+   cp code-simplifier/config.example.json code-simplifier/config.json
    cp pr-reviewer/config.example.json pr-reviewer/config.json
    cp pr-reviewer/.env.example pr-reviewer/.env
    cp codebase-organizer/config.example.json codebase-organizer/config.json
@@ -125,8 +127,11 @@ Add `simplification.md` to `.gitignore`. Each run picks the next unchecked folde
 6. Install the scheduled simplifier with launchd on macOS:
 
    ```bash
+   ./code-simplifier/install.sh
    ./code-simplifier/install_launchd.py
    ```
+
+   The old `simplify.sh` entrypoint is intentionally inert. Remove any legacy `code-simplifier/simplify.sh` crontab line after installing the LaunchAgent; it cannot start duplicate work while it remains.
 
    Install the codebase organizer skill and scheduled LaunchAgent when using organization checklists:
 
@@ -170,6 +175,8 @@ Add `simplification.md` to `.gitignore`. Each run picks the next unchecked folde
 
    The hook subscribes only to `issue_comment`. Post `/review` for only a correctness/security review or `/simplify` for only a behavior-preserving simplification pass. Run either command after GitHub CI is green. A new authorized command intentionally starts a fresh exact-SHA job even if the same head was handled previously.
 
+   Configure `workspace_hooks` for repository-owned setup and cleanup. For Exac, both webhook commands run the canonical `scripts/setup-worktree.sh --convex-mode local` from the trusted source checkout against the exact-head review clone, then always run `scripts/cleanup-worktree.sh`. Each top-level command gets one private local Convex deployment; all specialists inside that command use it, and it is deleted when the command finishes.
+
    Progress feedback is enabled by default. Configure `github_progress_enabled` and `github_progress_heartbeat_seconds` in defaults or per project; the heartbeat interval must be between 60 and 3600 seconds.
 
 The weekly refresh uses isolated temporary clones. It promotes audited provider skills globally and runs `npx convex ai-files update` for each enabled Convex project, publishing a hashed guidance snapshot without modifying the configured source checkout.
@@ -186,22 +193,16 @@ The weekly refresh uses isolated temporary clones. It promotes audited provider 
 
 ### Scheduled agents
 
-Each automation has a `config.sh` with:
+Both scheduled maintenance agents use the same JSON configuration vocabulary:
 
-- **`ENABLED`** — global toggle (`true`/`false`)
-- **`SCHEDULE`** — daily minute/hour cron expression, translated to launchd on macOS
-- **`PROJECTS`** — array of `path:default_branch:enabled` entries
-
-```bash
-PROJECTS=(
-  "/path/to/repo-a:main:true"
-  "/path/to/repo-b:master:false"   # temporarily disabled
-)
-```
+- **`enabled`** — global and per-project boolean switches
+- **`schedule`** — daily minute/hour cron expression translated to launchd on macOS
+- **`provider`** and model settings — shared Codex or Claude invocation policy
+- **`projects`** — named repository, base branch, checklist, validation, and workspace policy objects
 
 Projects rotate round-robin. Disabled projects are skipped.
 
-`codebase-organizer/config.json` uses the same global/project enable model in JSON. Every project supplies a persistent checklist path, repository, base branch, and definitive validation command. Legacy clone workspaces also require a private environment file. A linked-worktree project instead configures repository-relative `setup_command` and `cleanup_command` arrays. Exac selects canonical worktree setup with `--convex-mode local`; the Convex CLI stores that run's backend under the worktree's ignored `.convex/local` directory, and cleanup deletes it before removing the worktree. Cloud mode remains available for human worktrees and may provide a controller-only `management_token_file`; this file contains only the raw token, must have mode `0600`, and is exposed only to the cleanup hook. The exac organizer uses `pnpm run validate`, which includes the full test suite and `convex dev --once` against that run's local deployment.
+Every project supplies a persistent checklist path, repository, base branch, and validation commands. Clone workspaces also require a private environment file. A linked-worktree project instead configures repository-relative `setup_command` and `cleanup_command` arrays. Exac selects canonical worktree setup with `--convex-mode local`; the Convex CLI stores that run's backend under the worktree's ignored `.convex/local` directory, and cleanup deletes it before removing the worktree. Cloud mode remains available for human worktrees and may provide a controller-only `management_token_file`; this file contains only the raw token, must have mode `0600`, and is exposed only to the cleanup hook.
 
 ```json
 "workspace": {
@@ -222,7 +223,7 @@ The organization checklist uses one top-level item per correlated vertical slice
   - Remove: old paths, aliases, barrels, forwarding files, and fallbacks.
 ```
 
-The marker becomes complete only when the source refactor is ready and the controller's definitive validation passes. An open organizer PR blocks later checklist items; a closed-unmerged organizer PR restores its item to unchecked.
+The marker becomes complete only when the source refactor, agent-owned validation, and fresh verification are ready. An open organizer PR blocks later checklist items; a closed-unmerged organizer PR restores its item to unchecked.
 
 ### PR reviewer
 
@@ -252,14 +253,14 @@ Draft PRs remain ineligible even if someone comments `/review`. Cross-repository
 
 ### Agent-owned validation
 
-Each command owns one complete review, edit, validation, and verification lifecycle:
+Every reviewer, PR simplifier, scheduled simplifier, and organizer agent owns one complete review, edit, validation, and verification lifecycle:
 
-1. Require green GitHub CI for the exact input head before either agent starts.
+1. The controller binds an exact PR head or scheduled checklist slice and prepares its isolated workspace.
 2. The agent receives the repository validation commands and safe environment settings.
 3. The agent runs focused or full validation, diagnoses failures, fixes relevant defects, and iterates as often as useful in the same lifecycle.
 4. The agent distinguishes failures caused by its edits from unrelated, flaky, environmental, or already-green exact-head CI failures.
 5. The controller trusts that judgment, records the agent's evidence, and never starts a second validation or JSON-correction cycle.
-6. The controller commits safe returned working-tree changes and pushes only with an exact-head lease; GitHub CI validates the new SHA.
+6. The controller commits only safe returned working-tree changes. PR-comment agents push with an exact-head lease; scheduled agents publish a new automation branch and PR.
 
 If the failure is external, transient, ambiguous, or unsafe to repair, the reviewer reports the precise blocker instead of guessing.
 
@@ -283,16 +284,16 @@ If the failure is external, transient, ambiguous, or unsafe to repair, the revie
 ## Manual run
 
 ```bash
-./code-simplifier/simplify.sh
+./code-simplifier/controller.py --project exac --apply
 
 # Inspect the next organization item without editing.
-./codebase-organizer/organize.py --project exac
+./codebase-organizer/controller.py --project exac
 
 # Execute one organization item and publish its validated PR.
-./codebase-organizer/organize.py --project exac --apply
+./codebase-organizer/controller.py --project exac --apply
 
 # Review one exact PR with verified repairs enabled.
-./pr-reviewer/review.py \
+./pr-reviewer/controller.py \
   --config ./pr-reviewer/config.json \
   --project example \
   --pr 123 \
@@ -300,7 +301,7 @@ If the failure is external, transient, ambiguous, or unsafe to repair, the revie
   --apply
 
 # Simplify one exact PR without launching the reviewer.
-./pr-reviewer/review.py \
+./pr-reviewer/controller.py \
   --config ./pr-reviewer/config.json \
   --project example \
   --pr 123 \

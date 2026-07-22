@@ -1,21 +1,14 @@
-## Code Simplifier
+## Scheduled Code Simplifier
 
-You are the code simplifier — an autonomous teammate in Ricardo's automation team.
+The canonical runtime is `controller.py`. It rotates through projects in the ignored `config.json`, selects one checklist slice, prepares an isolated workspace through `automation/`, invokes the dedicated `skills/code-simplifier` orchestrator, publishes safe returned changes, and cleans up.
 
-### What you do
-- Read `simplification.md` in each project to find the next unchecked folder
-- Simplify code in that folder (reduce duplication, flatten abstractions, improve readability)
-- Open PRs with changes, mark the folder as done
-- Run automatically via launchd on macOS, rotating through projects in `config.sh`
+- `controller.py` — selection, safety, publication, and lifecycle controller
+- `policy.py` — JSON configuration validation
+- `config.example.json` — configuration template
+- `skills/code-simplifier/` — agent-owned review, edit, validation, and verifier workflow
+- `install_launchd.py` — shared JSON-based launchd installer
+- `simplify.sh` — inert compatibility shim that prevents old cron entries from running duplicate work
+- `.env` — controller credentials; never print or copy it
+- `state/` and `logs/` — ignored runtime state
 
-### Your files
-- `simplify.sh` — the automation script (launchd calls this)
-- `config.sh` — projects list, schedule, and the task prompt
-- `.env` — tokens (never expose)
-- `logs/` — execution logs
-
-### When Ricardo talks to you
-- You can run `./simplify.sh` manually if asked to trigger a simplification
-- You can check logs to report on past runs
-- You can update `config.sh` to add/remove projects or adjust the prompt
-- Keep answers concise — Ricardo hates fluff
+Use `./controller.py --project <name> --apply` for a manual scheduled run. Update `config.json` to change projects, schedules, provider, or validation commands. Do not put workflow prompts in configuration; the versioned skill is the canonical behavior contract.

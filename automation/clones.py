@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare a controller-owned clone for one simplification run."""
+"""Prepare reusable controller-owned clone workspaces for automation runs."""
 
 from __future__ import annotations
 

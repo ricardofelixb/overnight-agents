@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 
-MODULE_PATH = Path(__file__).resolve().parent / "worktrees.py"
+MODULE_PATH = Path(__file__).resolve().parent.parent / "worktrees.py"
 SPEC = importlib.util.spec_from_file_location("shared_worktrees", MODULE_PATH)
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
@@ -138,6 +138,24 @@ class LinkedWorktreeTests(unittest.TestCase):
                 self.git("branch", "--list", "code-organize/example", cwd=source),
                 "",
             )
+
+    def test_hook_can_be_resolved_from_trusted_checkout_for_an_exact_head_clone(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, _, origin = self.fixture(root)
+            workspace = root / "review-clone"
+            self.git("clone", str(origin), str(workspace))
+            untrusted_hook = workspace / "scripts" / "setup-worktree.sh"
+            untrusted_hook.write_text("#!/bin/sh\nexit 99\n")
+            untrusted_hook.chmod(0o755)
+
+            MODULE.run_setup_hook(
+                workspace,
+                ["scripts/setup-worktree.sh"],
+                hook_root=source,
+            )
+
+            self.assertEqual((workspace / ".setup-ran").read_text(), "setup")
 
     def test_management_token_must_be_private(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

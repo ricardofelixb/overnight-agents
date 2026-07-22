@@ -53,6 +53,16 @@ def validate_config(config: dict[str, Any], config_path: Path) -> list[str]:
             for command in value
         )
 
+    def valid_command(value: Any) -> bool:
+        return (
+            isinstance(value, list)
+            and bool(value)
+            and all(
+                isinstance(part, str) and part and "\0" not in part
+                for part in value
+            )
+        )
+
     def valid_validation_environment(value: Any) -> bool:
         forbidden = {"HOME", "PATH", "SHELL", "USER", "LOGNAME", "TMPDIR", "CODEX_HOME"}
         sensitive = re.compile(r"(TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH|PRIVATE|API_KEY)", re.IGNORECASE)
@@ -89,6 +99,16 @@ def validate_config(config: dict[str, Any], config_path: Path) -> list[str]:
             errors.append(f"{name}: validation_commands must be non-empty argv arrays")
         if not valid_commands(merged.get("setup_commands", [])):
             errors.append(f"{name}: setup_commands must be argv arrays")
+        workspace_hooks = merged.get("workspace_hooks")
+        if workspace_hooks is not None and (
+            not isinstance(workspace_hooks, dict)
+            or set(workspace_hooks) != {"setup_command", "cleanup_command"}
+            or not valid_command(workspace_hooks.get("setup_command"))
+            or not valid_command(workspace_hooks.get("cleanup_command"))
+        ):
+            errors.append(
+                f"{name}: workspace_hooks must contain setup_command and cleanup_command argv arrays"
+            )
         if not valid_validation_environment(merged.get("validation_environment", {})):
             errors.append(f"{name}: validation_environment contains an unsafe name or value")
         environment_file = merged.get("environment_file")

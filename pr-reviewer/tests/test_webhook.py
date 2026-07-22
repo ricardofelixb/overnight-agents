@@ -161,7 +161,7 @@ class WebhookTests(unittest.TestCase):
             processing = root / "webhook-queue" / "processing"
             processing.mkdir(parents=True)
             (processing / "delivery.json").write_text(json.dumps({"delivery": "delivery"}))
-            queue = DeliveryQueue(root, ROOT / "review.py", ROOT / "config.json", True, root / "worker.log")
+            queue = DeliveryQueue(root, ROOT / "controller.py", ROOT / "config.json", True, root / "worker.log")
             self.assertTrue((queue.pending / "delivery.json").exists())
 
     def test_worker_passes_progress_identity_to_both_operations(self) -> None:
@@ -169,7 +169,7 @@ class WebhookTests(unittest.TestCase):
             root = Path(temporary)
             queue = DeliveryQueue(
                 root,
-                ROOT / "review.py",
+                ROOT / "controller.py",
                 ROOT / "config.json",
                 True,
                 root / "worker.log",

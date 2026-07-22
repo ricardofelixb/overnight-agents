@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
@@ -14,7 +15,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from review import (
+from controller import (
     ReviewFailure,
     Runner,
     capture_ai_files_snapshot,
@@ -38,6 +39,7 @@ from review import (
     review_is_current,
     run_orchestrator,
     run_setup_commands,
+    setup_agent_workspace,
     run_simplification_phase,
     simplification_is_skipped,
     simplification_prompt,
@@ -206,9 +208,9 @@ class ReviewSafetyTests(unittest.TestCase):
                 output.write_text(json.dumps({"source": output.name}))
 
             with (
-                mock.patch("review.run_codex_result", side_effect=write_result) as run_codex,
+                mock.patch("controller.run_codex_result", side_effect=write_result) as run_codex,
                 mock.patch(
-                    "review.validate_orchestrator_result",
+                    "controller.validate_orchestrator_result",
                     return_value={"status": "repaired"},
                 ) as validate,
             ):
@@ -277,7 +279,7 @@ class ReviewSafetyTests(unittest.TestCase):
             )
             runtime.mkdir(parents=True)
             (runtime / "node").touch()
-            with mock.patch("review.Path.home", return_value=root):
+            with mock.patch("controller.shared_runtime.Path.home", return_value=root):
                 path = repository_runtime_path(workspace, "/usr/bin:/bin")
             self.assertEqual(path, f"{runtime}:/usr/bin:/bin")
 
@@ -295,7 +297,7 @@ class ReviewSafetyTests(unittest.TestCase):
                 )
             )
             with mock.patch(
-                "review.workspace_changes", return_value={"src/fixed.ts"}
+                "controller.workspace_changes", return_value={"src/fixed.ts"}
             ):
                 result = validate_orchestrator_result(
                     mock.Mock(),
@@ -479,12 +481,12 @@ class ReviewSafetyTests(unittest.TestCase):
                 "blocking_reasons": [],
             }
             runner = Runner(root / "review.log")
-            with mock.patch("review.changed_files_and_diff", return_value=(["src/a.ts"], "diff")), mock.patch(
-                "review.assert_clean_workspace"
+            with mock.patch("controller.changed_files_and_diff", return_value=(["src/a.ts"], "diff")), mock.patch(
+                "controller.assert_clean_workspace"
             ), mock.patch(
-                "review.workspace_changes", return_value=set()
+                "controller.workspace_changes", return_value=set()
             ), mock.patch(
-                "review.run_simplifier_orchestrator",
+                "controller.run_simplifier_orchestrator",
                 return_value=(result, root / "result.json"),
             ) as orchestrate:
                 current, state = run_simplification_phase(
@@ -715,6 +717,44 @@ class ReviewSafetyTests(unittest.TestCase):
         runner.run.assert_called_once()
         self.assertNotEqual(runner.run.call_args.kwargs.get("check"), False)
 
+    def test_repository_workspace_hooks_wrap_the_top_level_agent_run(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            workspace = root / "workspace"
+            source = root / "trusted-source"
+            workspace.mkdir()
+            source.mkdir()
+            runner = mock.Mock()
+            runner.log_path = root / "review.log"
+            project = {
+                "workspace_hooks": {
+                    "setup_command": ["scripts/setup-worktree.sh", "--convex-mode", "local"],
+                    "cleanup_command": ["scripts/cleanup-worktree.sh"],
+                }
+            }
+
+            with mock.patch("controller.worktree_lifecycle.run_setup_hook") as setup_hook, mock.patch(
+                "controller.worktree_lifecycle.run_cleanup_hook"
+            ) as cleanup_hook:
+                with ExitStack() as lifecycle:
+                    setup_agent_workspace(
+                        runner,
+                        project,
+                        workspace,
+                        source,
+                        lifecycle,
+                    )
+                    setup_hook.assert_called_once()
+                    self.assertEqual(
+                        setup_hook.call_args.kwargs["hook_root"], source
+                    )
+                    cleanup_hook.assert_not_called()
+
+                cleanup_hook.assert_called_once()
+                self.assertEqual(
+                    cleanup_hook.call_args.kwargs["hook_root"], source
+                )
+
     def test_pr_head_projection_is_polled_after_push(self) -> None:
         class ProjectionRunner:
             def __init__(self) -> None:
@@ -730,7 +770,7 @@ class ReviewSafetyTests(unittest.TestCase):
                 self.messages.append(message)
 
         runner = ProjectionRunner()
-        with mock.patch("review.time.sleep") as sleep:
+        with mock.patch("controller.time.sleep") as sleep:
             pr = fetch_pr_at_head(
                 runner,  # type: ignore[arg-type]
                 "trusted/example",

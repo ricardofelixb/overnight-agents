@@ -33,7 +33,7 @@ class OrganizerLaunchdTests(unittest.TestCase):
         self.assertEqual(value["Label"], MODULE.LABEL)
         self.assertEqual(
             value["ProgramArguments"],
-            ["/usr/bin/python3", str(root / "organize.py"), "--apply"],
+            ["/usr/bin/python3", str(root / "controller.py"), "--apply"],
         )
         self.assertNotIn("RunAtLoad", value)
 

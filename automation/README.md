@@ -1,10 +1,15 @@
 # Shared automation lifecycle
 
-`worktrees.py` owns reusable linked-worktree preparation and teardown for automation controllers.
+The `automation` package is the shared mechanical layer used by the runtime agents:
+
+- `clones.py` provisions and quarantines dedicated clone fallbacks;
+- `worktrees.py` owns linked-worktree preparation, repository hooks, controller-only cleanup tokens, and removal;
+- `runtime.py` owns streamed commands, declared Node runtime selection, environment loading, and Codex/Claude invocation;
+- `launchd.py` owns JSON schedule parsing and native LaunchAgent definitions.
 
 Controllers supply repository-relative setup and cleanup commands. The repository remains the source of truth for project-specific provisioning such as dependency installation, isolated service deployments, environment synchronization, and seeding.
 
-The shared controller layer guarantees that:
+Together these modules guarantee that:
 
 - the configured source checkout is never switched or reset;
 - automation runs from a linked worktree based on the latest remote base branch;

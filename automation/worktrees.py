@@ -251,15 +251,67 @@ def resolve_hook_command(workspace: Path, command: list[str]) -> list[str]:
     return [str(resolved), *command[1:]]
 
 
-def run_setup_hook(
-    workspace: Path, command: list[str], stream: TextIO | None = None
+def run_worktree_hook(
+    workspace: Path,
+    command: list[str],
+    *,
+    hook_root: Path | None = None,
+    environment_overrides: dict[str, str] | None = None,
+    stream: TextIO | None = None,
 ) -> None:
+    workspace = workspace.expanduser().resolve(strict=True)
+    trusted_root = (
+        hook_root.expanduser().resolve(strict=True)
+        if hook_root is not None
+        else workspace
+    )
     environment = os.environ.copy()
     environment["CODEX_WORKTREE_PATH"] = str(workspace)
+    if environment_overrides:
+        environment.update(environment_overrides)
     run(
-        resolve_hook_command(workspace, command),
+        resolve_hook_command(trusted_root, command),
         cwd=workspace,
         env=environment,
+        stream=stream,
+    )
+
+
+def run_setup_hook(
+    workspace: Path,
+    command: list[str],
+    stream: TextIO | None = None,
+    *,
+    hook_root: Path | None = None,
+) -> None:
+    run_worktree_hook(
+        workspace,
+        command,
+        hook_root=hook_root,
+        stream=stream,
+    )
+
+
+def run_cleanup_hook(
+    workspace: Path,
+    command: list[str],
+    stream: TextIO | None = None,
+    *,
+    hook_root: Path | None = None,
+    management_token_file: Path | None = None,
+) -> None:
+    overrides = None
+    if management_token_file is not None:
+        overrides = {
+            "CONVEX_MANAGEMENT_TOKEN": read_management_token(
+                management_token_file
+            )
+        }
+    run_worktree_hook(
+        workspace,
+        command,
+        hook_root=hook_root,
+        environment_overrides=overrides,
         stream=stream,
     )
 
@@ -300,18 +352,40 @@ def cleanup_linked_worktree(
     if branch and not branch.startswith(f"{branch_prefix}/"):
         raise WorktreeFailure("refusing to remove a worktree on an unexpected branch")
 
-    environment = os.environ.copy()
-    environment["CODEX_WORKTREE_PATH"] = str(workspace)
-    if management_token_file is not None:
-        environment["CONVEX_MANAGEMENT_TOKEN"] = read_management_token(
-            management_token_file
-        )
-    run(
-        resolve_hook_command(workspace, cleanup_command),
-        cwd=workspace,
-        env=environment,
+    run_cleanup_hook(
+        workspace,
+        cleanup_command,
+        management_token_file=management_token_file,
         stream=stream,
     )
+    remove_linked_worktree(
+        source_path=source,
+        workspace=workspace,
+        branch_prefix=branch_prefix,
+        stream=stream,
+    )
+
+
+def remove_linked_worktree(
+    *,
+    source_path: Path,
+    workspace: Path,
+    branch_prefix: str,
+    stream: TextIO | None = None,
+) -> None:
+    """Remove a terminally clean automation worktree after its hook has run."""
+    source = source_path.expanduser().resolve(strict=True)
+    workspace = workspace.expanduser().resolve(strict=True)
+    if not is_linked_to_source(workspace, source):
+        raise WorktreeFailure("refusing to remove a worktree not owned by the source repository")
+    tracked_status = git(
+        workspace, "status", "--porcelain", "--untracked-files=no"
+    ).stdout.strip()
+    if tracked_status:
+        raise WorktreeFailure("refusing to remove a worktree with tracked changes")
+    branch = git(workspace, "branch", "--show-current", check=False).stdout.strip()
+    if branch and not branch.startswith(f"{branch_prefix}/"):
+        raise WorktreeFailure("refusing to remove a worktree on an unexpected branch")
     git(source, "worktree", "remove", "--force", str(workspace), stream=stream)
     git(source, "worktree", "prune", stream=stream)
     if branch:

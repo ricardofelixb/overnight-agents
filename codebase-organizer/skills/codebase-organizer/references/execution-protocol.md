@@ -40,7 +40,7 @@ Do not use an alias or forwarding module to make an incomplete rename pass.
 
 ## 6. Verify behavior
 
-Run focused tests for affected behavior while iterating. When a deterministic controller owns the final full gate, leave the working tree ready for that controller and do not duplicate its repository-wide validation. Otherwise run the repository's definitive validation yourself.
+Run focused tests for affected behavior while iterating and run the repository's definitive validation yourself. Diagnose and repair relevant failures freely; unrelated environmental or pre-existing failures must be identified precisely rather than converted into artificial correction attempts. Spawn one fresh read-only verifier with the original approved slice and final working-tree diff and address every proven finding.
 
 Review the final diff for behavioral edits, contract drift, schema drift, permission drift, and unexpected generated changes. Confirm tracked moves are represented as renames rather than unrelated deletion/addition pairs. Reject unexplained line churn, broad formatting, or whole-file replacement not produced by an approved generator.
 

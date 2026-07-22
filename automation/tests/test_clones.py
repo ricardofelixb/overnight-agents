@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from workspace import WorkspaceFailure, prepare_workspace
+from automation.clones import WorkspaceFailure, prepare_workspace
 
 
 class WorkspaceTests(unittest.TestCase):

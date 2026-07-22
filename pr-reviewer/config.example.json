@@ -62,6 +62,10 @@
       "excluded_authors": ["dependabot[bot]", "app/dependabot"],
       "allow_forks": false,
       "setup_commands": [["pnpm", "install", "--frozen-lockfile"]],
+      "workspace_hooks": {
+        "setup_command": ["scripts/setup-worktree.sh", "--convex-mode", "local"],
+        "cleanup_command": ["scripts/cleanup-worktree.sh"]
+      },
       "validation_commands": [["pnpm", "run", "validate"]],
       "mode": "repair"
     }

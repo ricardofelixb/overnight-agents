@@ -33,6 +33,6 @@ Then read repository instructions such as `AGENTS.md`, `CLAUDE.md`, and `package
 
 ## Completion contract
 
-Finish only when all old source paths and obsolete internal names covered by the item are gone, imports resolve, focused behavior tests pass, and the controller-owned definitive validation passes. For exac, definitive validation is `pnpm run validate` and must end with zero errors, zero warnings, React Doctor 100, all tests green, and `Convex functions ready`.
+Finish only when all old source paths and obsolete internal names covered by the item are gone, imports resolve, focused behavior tests pass, and the repository's definitive validation passes under your ownership. For exac, definitive validation is `pnpm run validate` and must end with zero errors, zero warnings, React Doctor 100, all tests green, and `Convex functions ready`. Before returning, spawn one fresh read-only verifier with the original approved slice and final working-tree diff, then address every proven finding.
 
 If exact behavior cannot be proven or a public consumer is unknown, stop and report the concrete uncertainty. Do not preserve ambiguity with a compatibility layer.

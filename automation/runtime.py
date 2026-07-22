@@ -33,7 +33,19 @@ SAFE_AGENT_ENV = {
     "TERM",
     "TMPDIR",
     "USER",
+    "VITEST_MAX_WORKERS",
 }
+
+DEFAULT_VITEST_MAX_WORKERS = "4"
+
+AGENT_PROCESS_GUIDANCE = """
+
+Shared process rules:
+- Run validation in the foreground with a tool timeout long enough for the repository command.
+- Never use nohup or background a validation command.
+- Before retrying validation, confirm the previous validation process has exited; never run duplicate repository validations concurrently.
+- Use engineering judgment for proven environmental failures: rerun the failed component in isolation and report the evidence instead of restarting an otherwise-complete monolithic pipeline solely to obtain a single green transcript.
+""".rstrip()
 
 
 def now_iso() -> str:
@@ -79,6 +91,12 @@ def git(
     stream: TextIO | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return run(["git", *arguments], cwd=cwd, check=check, stream=stream)
+
+
+def protected_repository_config(workspace: Path) -> tuple[str, ...]:
+    """Return shared Git configuration excluding volatile per-branch UI metadata."""
+    values = git(workspace, "config", "--local", "--list").stdout.splitlines()
+    return tuple(sorted(value for value in values if not value.startswith("branch.")))
 
 
 def repository_runtime_path(workspace: Path, inherited_path: str | None = None) -> str:
@@ -138,6 +156,9 @@ def agent_environment(workspace: Path, environment_file: Path | None = None) -> 
     environment = {key: value for key, value in source.items() if key in SAFE_AGENT_ENV}
     environment["PATH"] = repository_runtime_path(workspace, environment.get("PATH"))
     environment["CI"] = "true"
+    # Vitest otherwise uses every available CPU except one. An agent and its
+    # verifier can then starve individual tests until their normal timeouts.
+    environment.setdefault("VITEST_MAX_WORKERS", DEFAULT_VITEST_MAX_WORKERS)
     return environment
 
 
@@ -185,7 +206,7 @@ def run_agent(
     environment_file: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return run(
-        agent_command(config, workspace, prompt),
+        agent_command(config, workspace, f"{prompt.rstrip()}\n{AGENT_PROCESS_GUIDANCE}"),
         cwd=workspace,
         env=agent_environment(workspace, environment_file),
         check=False,

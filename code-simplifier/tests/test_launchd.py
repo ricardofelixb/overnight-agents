@@ -35,6 +35,7 @@ class SimplifierLaunchdTests(unittest.TestCase):
             value["ProgramArguments"],
             ["/usr/bin/python3", str(root / "controller.py"), "--apply"],
         )
+        self.assertIn("/usr/sbin", value["EnvironmentVariables"]["PATH"].split(":"))
         self.assertNotIn("RunAtLoad", value)
 
     def test_reads_the_standard_json_configuration(self) -> None:

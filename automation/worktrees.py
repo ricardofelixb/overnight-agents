@@ -267,6 +267,7 @@ def run_worktree_hook(
     )
     environment = os.environ.copy()
     environment["CODEX_WORKTREE_PATH"] = str(workspace)
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
     if environment_overrides:
         environment.update(environment_overrides)
     run(
@@ -290,6 +291,42 @@ def run_setup_hook(
         hook_root=hook_root,
         stream=stream,
     )
+
+
+def run_setup_hook_with_rollback(
+    *,
+    source_path: Path,
+    workspace: Path,
+    branch_prefix: str,
+    setup_command: list[str],
+    cleanup_command: list[str],
+    resuming: bool,
+    stream: TextIO | None = None,
+    management_token_file: Path | None = None,
+) -> None:
+    """Run repository setup and roll back a newly prepared worktree on failure."""
+    try:
+        run_setup_hook(workspace, setup_command, stream=stream)
+    except WorktreeFailure as setup_error:
+        try:
+            run_cleanup_hook(
+                workspace,
+                cleanup_command,
+                management_token_file=management_token_file,
+                stream=stream,
+            )
+        except (OSError, WorktreeFailure) as cleanup_error:
+            raise WorktreeFailure(
+                f"{setup_error}; setup rollback failed: {cleanup_error}"
+            ) from setup_error
+        if not resuming and workspace.exists():
+            remove_linked_worktree(
+                source_path=source_path,
+                workspace=workspace,
+                branch_prefix=branch_prefix,
+                stream=stream,
+            )
+        raise
 
 
 def run_cleanup_hook(

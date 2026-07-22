@@ -59,6 +59,22 @@ class LinkedWorktreeTests(unittest.TestCase):
         checklist.write_text("- [ ] **example** — Example\n")
         return source, checklist, origin
 
+    def test_setup_hook_disables_python_bytecode_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, checklist, _ = self.fixture(root)
+            prepared = self.prepare(root, source, checklist)
+            workspace = Path(str(prepared["workspace"]))
+            probe = workspace / "scripts" / "python-env.sh"
+            probe.write_text(
+                "#!/bin/sh\nset -eu\nprintf '%s' \"${PYTHONDONTWRITEBYTECODE:-}\" > .python-env\n"
+            )
+            probe.chmod(0o755)
+
+            MODULE.run_setup_hook(workspace, ["scripts/python-env.sh"])
+
+            self.assertEqual((workspace / ".python-env").read_text(), "1")
+
     def prepare(self, root: Path, source: Path, checklist: Path) -> dict[str, str | bool]:
         return MODULE.prepare_linked_worktree(
             source_path=source,
@@ -164,6 +180,31 @@ class LinkedWorktreeTests(unittest.TestCase):
             token.chmod(0o644)
             with self.assertRaisesRegex(MODULE.WorktreeFailure, "group or other"):
                 MODULE.read_management_token(token)
+
+    def test_failed_setup_rolls_back_new_linked_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, checklist, _ = self.fixture(root)
+            prepared = self.prepare(root, source, checklist)
+            workspace = Path(str(prepared["workspace"]))
+            failing = workspace / "scripts" / "failing-setup.sh"
+            failing.write_text("#!/bin/sh\nset -eu\nexit 23\n")
+            failing.chmod(0o755)
+
+            with self.assertRaisesRegex(MODULE.WorktreeFailure, "command failed \\(23\\)"):
+                MODULE.run_setup_hook_with_rollback(
+                    source_path=source,
+                    workspace=workspace,
+                    branch_prefix="code-organize",
+                    setup_command=["scripts/failing-setup.sh"],
+                    cleanup_command=["scripts/cleanup-worktree.sh"],
+                    resuming=False,
+                )
+
+            self.assertFalse(workspace.exists())
+            self.assertNotIn(
+                str(workspace), self.git("worktree", "list", "--porcelain", cwd=source)
+            )
 
 
 if __name__ == "__main__":

@@ -422,9 +422,17 @@ def setup_workspace(
         if not resuming:
             install_dependencies(workspace, stream)
         return False
+    token_path = workspace_config.get("management_token_file")
     try:
-        worktrees.run_setup_hook(
-            workspace, workspace_config["setup_command"], stream=stream
+        worktrees.run_setup_hook_with_rollback(
+            source_path=Path(project["source_path"]),
+            workspace=workspace,
+            branch_prefix=BRANCH_PREFIX,
+            setup_command=workspace_config["setup_command"],
+            cleanup_command=workspace_config["cleanup_command"],
+            management_token_file=Path(token_path) if token_path else None,
+            resuming=resuming,
+            stream=stream,
         )
     except worktrees.WorktreeFailure as error:
         raise OrganizerFailure(str(error)) from error
@@ -493,7 +501,7 @@ def execute_project(
     try:
         if not resuming:
             git(workspace, "checkout", "-b", branch, stream=stream)
-        git_config = git(workspace, "config", "--local", "--list").stdout
+        git_config = runtime.protected_repository_config(workspace)
         original_head = git(workspace, "rev-parse", "HEAD").stdout.strip()
         prompt = agent_prompt(
             workspace=workspace,
@@ -507,7 +515,7 @@ def execute_project(
         if agent.returncode != 0:
             atomic_write(checklist_path, original)
             raise OrganizerFailure(f"organizer agent exited with code {agent.returncode}")
-        if git(workspace, "config", "--local", "--list").stdout != git_config:
+        if runtime.protected_repository_config(workspace) != git_config:
             atomic_write(checklist_path, original)
             raise OrganizerFailure("organizer changed local Git configuration")
         if git(workspace, "rev-parse", "HEAD").stdout.strip() != original_head:

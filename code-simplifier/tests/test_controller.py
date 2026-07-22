@@ -54,8 +54,19 @@ class SimplifierControllerTests(unittest.TestCase):
 
     def test_protected_publication_paths_are_rejected(self) -> None:
         self.assertEqual(
-            MODULE.protected_paths(["src/a.ts", "pnpm-lock.yaml", ".github/workflows/ci.yml"]),
-            ["pnpm-lock.yaml", ".github/workflows/ci.yml"],
+            MODULE.protected_paths(
+                [
+                    "src/a.ts",
+                    "pnpm-lock.yaml",
+                    ".github/workflows/ci.yml",
+                    "scripts/__pycache__/tool.pyc",
+                ]
+            ),
+            [
+                "pnpm-lock.yaml",
+                ".github/workflows/ci.yml",
+                "scripts/__pycache__/tool.pyc",
+            ],
         )
 
     def test_clone_workflow_publishes_one_agent_validated_slice(self) -> None:

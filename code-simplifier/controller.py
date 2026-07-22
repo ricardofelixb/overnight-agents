@@ -33,6 +33,7 @@ BRANCH_PREFIX = "code-simplify"
 ITEM_PATTERN = re.compile(r"^(?P<prefix>\s*-\s*\[)(?P<status>[ xX])(?P<suffix>\]\s*)(?P<title>.+?)\s*$")
 PROTECTED_PATTERNS = (
     re.compile(r"(^|/)\.env(?:\.|$)"),
+    re.compile(r"(^|/)__pycache__(?:/|$)|\.pyc$"),
     re.compile(
         r"(^|/)(?:package\.json|pyproject\.toml|Cargo\.toml|requirements[^/]*\.txt|"
         r"pnpm-lock\.yaml|package-lock\.json|yarn\.lock|uv\.lock|Cargo\.lock)$"
@@ -335,8 +336,16 @@ def execute_project(
     try:
         if not resuming:
             if isinstance(workspace_config, dict):
-                worktrees.run_setup_hook(
-                    workspace, workspace_config["setup_command"], stream=stream
+                token = workspace_config.get("management_token_file")
+                worktrees.run_setup_hook_with_rollback(
+                    source_path=Path(project["source_path"]),
+                    workspace=workspace,
+                    branch_prefix=BRANCH_PREFIX,
+                    setup_command=workspace_config["setup_command"],
+                    cleanup_command=workspace_config["cleanup_command"],
+                    management_token_file=Path(token) if token else None,
+                    resuming=False,
+                    stream=stream,
                 )
                 hook_active = True
             elif (workspace / "pnpm-lock.yaml").is_file():
@@ -350,12 +359,20 @@ def execute_project(
                 runtime.run(["uv", "sync"], cwd=workspace, stream=stream)
             runtime.git(workspace, "checkout", "-b", branch, stream=stream)
         elif isinstance(workspace_config, dict):
-            worktrees.run_setup_hook(
-                workspace, workspace_config["setup_command"], stream=stream
+            token = workspace_config.get("management_token_file")
+            worktrees.run_setup_hook_with_rollback(
+                source_path=Path(project["source_path"]),
+                workspace=workspace,
+                branch_prefix=BRANCH_PREFIX,
+                setup_command=workspace_config["setup_command"],
+                cleanup_command=workspace_config["cleanup_command"],
+                management_token_file=Path(token) if token else None,
+                resuming=True,
+                stream=stream,
             )
             hook_active = True
 
-        git_config = runtime.git(workspace, "config", "--local", "--list").stdout
+        git_config = runtime.protected_repository_config(workspace)
         original_head = runtime.git(workspace, "rev-parse", "HEAD").stdout.strip()
         agent = runtime.run_agent(
             config,
@@ -367,7 +384,7 @@ def execute_project(
         if agent.returncode != 0:
             checklist.write_text(original)
             raise SimplifierFailure(f"simplifier agent exited with code {agent.returncode}")
-        if runtime.git(workspace, "config", "--local", "--list").stdout != git_config:
+        if runtime.protected_repository_config(workspace) != git_config:
             checklist.write_text(original)
             raise SimplifierFailure("simplifier changed local Git configuration")
         if runtime.git(workspace, "rev-parse", "HEAD").stdout.strip() != original_head:

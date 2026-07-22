@@ -245,19 +245,27 @@ class OrganizerTests(unittest.TestCase):
             def fake_agent(
                 _config: dict[str, object],
                 workspace: Path,
-                _prompt: str,
+                prompt: str,
                 _stream: object,
             ) -> subprocess.CompletedProcess[str]:
+                self.assertIn("MANUAL_UI_CHECKS_JSON", prompt)
                 (workspace / "organized.txt").write_text("same behavior\n")
                 checklist.write_text(
                     checklist.read_text().replace("- [ ] **sales**", "- [x] **sales**")
                 )
-                return subprocess.CompletedProcess([], 0, "", "")
+                return subprocess.CompletedProcess(
+                    [],
+                    0,
+                    'MANUAL_UI_CHECKS_JSON: ["Open sales and confirm navigation still works."]',
+                    "",
+                )
 
             original_run = MODULE.run
+            created_body: dict[str, str] = {}
 
             def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
                 if command[:3] == ["gh", "pr", "create"]:
+                    created_body["value"] = command[command.index("--body") + 1]
                     return subprocess.CompletedProcess(
                         command,
                         0,
@@ -283,6 +291,10 @@ class OrganizerTests(unittest.TestCase):
 
             self.assertEqual(
                 message, "example: created https://github.com/owner/example/pull/17"
+            )
+            self.assertIn(
+                "- [ ] Open sales and confirm navigation still works.",
+                created_body["value"],
             )
             self.assertIn("- [x] **sales**", checklist.read_text())
             remote_branch = self.git(

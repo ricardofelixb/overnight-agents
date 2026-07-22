@@ -5,6 +5,7 @@ The `automation` package is the shared mechanical layer used by the runtime agen
 - `clones.py` provisions and quarantines dedicated clone fallbacks;
 - `worktrees.py` owns linked-worktree preparation, repository hooks, controller-only cleanup tokens, and removal;
 - `runtime.py` owns streamed commands, declared Node runtime selection, bounded test concurrency, environment loading, and Codex/Claude invocation;
+- `pull_requests.py` owns structured manual UI checks and shared PR-description formatting;
 - `launchd.py` owns JSON schedule parsing and native LaunchAgent definitions.
 
 Controllers supply repository-relative setup and cleanup commands. The repository remains the source of truth for project-specific provisioning such as dependency installation, isolated service deployments, environment synchronization, and seeding.

@@ -24,7 +24,7 @@ if str(REPO_ROOT) not in sys.path:
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from automation import clones, runtime, worktrees
+from automation import clones, pull_requests, runtime, worktrees
 from policy import ConfigurationFailure, validate_config as validate_configuration
 
 SKILL_ROOT = SCRIPT_DIR / "skills" / "codebase-organizer"
@@ -281,6 +281,8 @@ Run focused checks while working, then own the definitive validation and keep di
 {json.dumps(validation_commands)}
 
 Spawn one fresh read-only verifier with the original approved slice and final working-tree diff. Address every proven issue before returning. The minimal controller trusts your validation judgment and owns only protected-path checks, commit, push, PR creation, and cleanup. Do not commit, push, create or edit a PR, comment on GitHub, merge, weaken validation, or modify any other checklist item. Change exactly this top-level marker from [ ] to [x] only after the behavior-preserving source refactor is complete.{resume}
+
+{pull_requests.MANUAL_UI_CHECKS_PROMPT}
 """
 
 
@@ -316,6 +318,7 @@ def publish(
     item: ChecklistItem,
     branch: str,
     validation_commands: list[list[str]],
+    agent_output: str,
     stream: TextIO,
 ) -> tuple[int, str]:
     git(workspace, "diff", "--check", stream=stream)
@@ -332,6 +335,9 @@ def publish(
     git(workspace, "commit", "-m", f"refactor: organize {item.title}", stream=stream)
     git(workspace, "push", "-u", "origin", branch, stream=stream)
     validation = "\n".join(" ".join(command) for command in validation_commands)
+    ui_section = pull_requests.manual_ui_section(
+        pull_requests.manual_ui_checks(agent_output, staged, item.title)
+    )
     body = (
         "## Organization slice\n\n"
         f"Completed `{item.item_id}` as one behavior-preserving backend/frontend source refactor.\n\n"
@@ -340,7 +346,8 @@ def publish(
         "- Old paths were removed without barrels, aliases, shims, or legacy fallbacks.\n\n"
         "## Validation\n\n"
         f"```text\n{validation}\n```\n\n"
-        "The agent-owned configured validation gate passed before publication."
+        "The agent-owned configured validation gate passed before publication.\n\n"
+        f"{ui_section}"
     )
     result = run(
         [
@@ -538,6 +545,7 @@ def execute_project(
             item=item,
             branch=branch,
             validation_commands=project["validation_commands"],
+            agent_output=agent.stdout,
             stream=stream,
         )
         pending = {

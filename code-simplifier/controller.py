@@ -23,7 +23,7 @@ if str(REPO_ROOT) not in sys.path:
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from automation import clones, runtime, worktrees
+from automation import clones, pull_requests, runtime, worktrees
 from policy import ConfigurationFailure, validate_config
 
 
@@ -185,6 +185,8 @@ The controller selected this exact first unchecked checklist item:
 Repository validation commands: {json.dumps(project['validation_commands'])}
 
 Read the skill and project instructions completely. Spawn its three read-only specialist sub-agents concurrently. You own focused checks, repository validation, iteration, and the fresh verifier. Never commit, push, create a PR, change Git configuration, or edit another checklist marker. Mark exactly the selected marker [x] only after the slice is ready. The controller trusts your validation judgment and only enforces safety, publication, and cleanup.{resume}
+
+{pull_requests.MANUAL_UI_CHECKS_PROMPT}
 """
 
 
@@ -255,6 +257,7 @@ def publish(
     project: dict[str, Any],
     item: ChecklistItem,
     branch: str,
+    agent_output: str,
     stream: TextIO,
 ) -> str:
     runtime.git(workspace, "diff", "--check", stream=stream)
@@ -274,6 +277,9 @@ def publish(
     runtime.git(workspace, "commit", "-m", f"refactor: simplify {target}", stream=stream)
     runtime.git(workspace, "push", "-u", "origin", branch, stream=stream)
     validation = "\n".join(" ".join(command) for command in project["validation_commands"])
+    ui_section = pull_requests.manual_ui_section(
+        pull_requests.manual_ui_checks(agent_output, staged, item.title)
+    )
     result = runtime.run(
         [
             "gh", "pr", "create", "--repo", project["repository"],
@@ -283,7 +289,8 @@ def publish(
                 f"## Simplification slice\n\nCompleted `{item.title}` with behavior-preserving "
                 "reuse, maintainability, and efficiency review.\n\n## Validation\n\n"
                 f"```text\n{validation}\n```\n\nValidation was owned by the simplification agent; "
-                "the controller enforced publication safety and workspace cleanup."
+                "the controller enforced publication safety and workspace cleanup.\n\n"
+                f"{ui_section}"
             ),
         ],
         cwd=workspace,
@@ -398,7 +405,7 @@ def execute_project(
         if not status:
             terminal_cleanup = True
             return f"{project['name']}: {item.title} required no source changes"
-        url = publish(workspace, project, item, branch, stream)
+        url = publish(workspace, project, item, branch, agent.stdout, stream)
         completed_line = completed_checklist_text(original, item).splitlines()[
             item.line_index
         ]

@@ -104,20 +104,28 @@ class SimplifierControllerTests(unittest.TestCase):
             config = {"provider": "codex", "workspace_root": str(root / "workspaces")}
 
             def fake_agent(
-                _config: dict[str, object], workspace: Path, _prompt: str,
+                _config: dict[str, object], workspace: Path, prompt: str,
                 _stream: object, **_kwargs: object,
             ) -> subprocess.CompletedProcess[str]:
+                self.assertIn("MANUAL_UI_CHECKS_JSON", prompt)
                 (workspace / "source.ts").write_text("export const value = (1);\n")
                 local_checklist = workspace / "simplification.md"
                 local_checklist.write_text(local_checklist.read_text().replace("[ ]", "[x]", 1))
-                return subprocess.CompletedProcess([], 0, "validated", "")
+                return subprocess.CompletedProcess(
+                    [],
+                    0,
+                    'validated\nMANUAL_UI_CHECKS_JSON: ["Open settings and confirm the dialog appears."]',
+                    "",
+                )
 
             original_run = MODULE.runtime.run
+            created_body: dict[str, str] = {}
 
             def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
                 if command[:3] == ["gh", "pr", "list"]:
                     return subprocess.CompletedProcess(command, 0, "[]", "")
                 if command[:3] == ["gh", "pr", "create"]:
+                    created_body["value"] = command[command.index("--body") + 1]
                     return subprocess.CompletedProcess(
                         command, 0, "https://github.com/owner/example/pull/17\n", ""
                     )
@@ -139,6 +147,10 @@ class SimplifierControllerTests(unittest.TestCase):
                     message = MODULE.execute_project(config, project, apply=True, stream=stream)
 
             self.assertEqual(message, "example: created https://github.com/owner/example/pull/17")
+            self.assertIn(
+                "- [ ] Open settings and confirm the dialog appears.",
+                created_body["value"],
+            )
             self.assertIn("[x]", checklist.read_text())
             self.assertTrue(
                 self.git("for-each-ref", "--format=%(refname:short)", "refs/heads/code-simplify/", cwd=origin)

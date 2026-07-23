@@ -155,11 +155,34 @@ def prepare_workspace(
 def unique_branch(workspace: Path) -> str:
     date = datetime.now().strftime("%Y-%m-%d")
     base = f"{BRANCH_PREFIX}/{date}"
-    if runtime.git(
-        workspace, "show-ref", "--verify", "--quiet", f"refs/heads/{base}", check=False
-    ).returncode != 0:
+
+    def exists(branch: str) -> bool:
+        return any(
+            runtime.git(
+                workspace,
+                "show-ref",
+                "--verify",
+                "--quiet",
+                ref,
+                check=False,
+            ).returncode
+            == 0
+            for ref in (
+                f"refs/heads/{branch}",
+                f"refs/remotes/origin/{branch}",
+            )
+        )
+
+    if not exists(base):
         return base
-    return f"{base}-{datetime.now().strftime('%H%M%S')}"
+
+    timestamped = f"{base}-{datetime.now().strftime('%H%M%S')}"
+    candidate = timestamped
+    counter = 2
+    while exists(candidate):
+        candidate = f"{timestamped}-{counter}"
+        counter += 1
+    return candidate
 
 
 def agent_prompt(

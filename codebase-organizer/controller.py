@@ -280,6 +280,8 @@ Run focused checks while working, then own the definitive validation and keep di
 
 {json.dumps(validation_commands)}
 
+Run each definitive validation command in the foreground and wait for its actual completion. Read the complete command output and use that command's own exit status as the only pass/fail verdict; never background, pipe, poll, or infer a pass from a successful monitor command. A non-zero validation exit means the work is not ready: do not report success, mark the checklist, or return.
+
 Spawn one fresh read-only verifier with the original approved slice and final working-tree diff. Address every proven issue before returning. The minimal controller trusts your validation judgment and owns only protected-path checks, commit, push, PR creation, and cleanup. Do not commit, push, create or edit a PR, comment on GitHub, merge, weaken validation, or modify any other checklist item. Change exactly this top-level marker from [ ] to [x] only after the behavior-preserving source refactor is complete.{resume}
 
 {pull_requests.MANUAL_UI_CHECKS_PROMPT}

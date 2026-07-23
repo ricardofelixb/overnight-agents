@@ -42,7 +42,9 @@ AGENT_PROCESS_GUIDANCE = """
 
 Shared process rules:
 - Run validation in the foreground with a tool timeout long enough for the repository command.
-- Never use nohup or background a validation command.
+- Never use nohup, `run_in_background`, a shell background operator, a pipe to `tail`, or any other detached wrapper for a validation command.
+- Wait for the exact validation command to exit, read its complete output, and use that command's own exit status as the only validation verdict. A successful `ps`, `pgrep`, `tail`, monitor, or other helper command never proves validation passed.
+- Treat every non-zero validation exit as a failure. Do not report success, mark a checklist item complete, or return while validation, verification, or their result is pending.
 - Before retrying validation, confirm the previous validation process has exited; never run duplicate repository validations concurrently.
 - Use engineering judgment for proven environmental failures: rerun the failed component in isolation and report the evidence instead of restarting an otherwise-complete monolithic pipeline solely to obtain a single green transcript.
 """.rstrip()

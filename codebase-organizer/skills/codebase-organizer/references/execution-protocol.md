@@ -46,6 +46,6 @@ Review the final diff for behavioral edits, contract drift, schema drift, permis
 
 ## 7. Update state
 
-Change exactly the selected top-level marker from `[ ]` to `[x]` only after the source refactor and focused checks are complete. Do not rewrite, reorder, or add checklist items during an execution run.
+Do not edit the checklist. The controller records exactly the selected marker only after it accepts the completed run and publishes any source changes. Do not rewrite, reorder, or add checklist items during an execution run.
 
 Do not commit or publish when the controller owns Git operations. On uncertainty or failure, leave the selected item unchecked and report the exact blocker.

@@ -28,15 +28,14 @@ class SimplifierControllerTests(unittest.TestCase):
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=True,
         ).stdout.strip()
 
-    def test_checklist_transition_is_exact(self) -> None:
+    def test_controller_owns_checklist_transition(self) -> None:
         original = "# Simplify\n\n- [ ] src/auth/\n- [ ] src/billing/\n"
         item = MODULE.first_unchecked_item(original)
         assert item
         completed = MODULE.completed_checklist_text(original, item)
-        MODULE.require_exact_transition(original, completed, item)
         self.assertIn("- [x] src/auth/", completed)
-        with self.assertRaisesRegex(MODULE.SimplifierFailure, "exactly"):
-            MODULE.require_exact_transition(original, completed + "extra\n", item)
+        with self.assertRaisesRegex(MODULE.SimplifierFailure, "must not modify"):
+            MODULE.require_unchanged_checklist(original, completed + "extra\n")
 
     def test_controller_delegates_validation_without_correction_cycles(self) -> None:
         source = MODULE_PATH.read_text()
@@ -141,8 +140,6 @@ class SimplifierControllerTests(unittest.TestCase):
             ) -> subprocess.CompletedProcess[str]:
                 self.assertIn("MANUAL_UI_CHECKS_JSON", prompt)
                 (workspace / "source.ts").write_text("export const value = (1);\n")
-                local_checklist = workspace / "simplification.md"
-                local_checklist.write_text(local_checklist.read_text().replace("[ ]", "[x]", 1))
                 return subprocess.CompletedProcess(
                     [],
                     0,

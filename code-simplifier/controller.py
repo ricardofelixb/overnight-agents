@@ -23,7 +23,7 @@ if str(REPO_ROOT) not in sys.path:
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from automation import clones, pull_requests, runtime, worktrees
+from automation import checklists, clones, pull_requests, runtime, worktrees
 from policy import ConfigurationFailure, validate_config
 
 
@@ -78,23 +78,24 @@ def first_unchecked_item(text: str) -> ChecklistItem | None:
 
 
 def completed_checklist_text(original: str, item: ChecklistItem) -> str:
-    lines = original.splitlines(keepends=True)
-    line = lines[item.line_index]
-    match = ITEM_PATTERN.match(line.rstrip("\r\n"))
-    if not match or match.group("status") != " ":
-        raise SimplifierFailure("selected checklist item changed unexpectedly")
-    ending = line[len(line.rstrip("\r\n")) :]
-    lines[item.line_index] = (
-        f"{match.group('prefix')}x{match.group('suffix')}{match.group('title')}{ending}"
-    )
-    return "".join(lines)
+    try:
+        return checklists.completed_text(original, item.line_index)
+    except checklists.ChecklistFailure as error:
+        raise SimplifierFailure(str(error)) from error
 
 
-def require_exact_transition(original: str, current: str, item: ChecklistItem) -> None:
-    if current != completed_checklist_text(original, item):
-        raise SimplifierFailure(
-            "agent must change exactly the selected simplification marker from [ ] to [x]"
-        )
+def require_unchanged_checklist(original: str, current: str) -> None:
+    try:
+        checklists.require_unchanged(original, current)
+    except checklists.ChecklistFailure as error:
+        raise SimplifierFailure(str(error)) from error
+
+
+def mark_completed_checklist(checklist: Path, original: str, item: ChecklistItem) -> str:
+    try:
+        return checklists.mark_completed(checklist, original, item.line_index)
+    except (OSError, checklists.ChecklistFailure) as error:
+        raise SimplifierFailure(str(error)) from error
 
 
 def select_project(
@@ -207,7 +208,7 @@ The controller selected this exact first unchecked checklist item:
 
 Repository validation commands: {json.dumps(project['validation_commands'])}
 
-Read the skill and project instructions completely. Spawn its three read-only specialist sub-agents concurrently. You own focused checks, repository validation, iteration, and the fresh verifier. Never commit, push, create a PR, change Git configuration, or edit another checklist marker. Mark exactly the selected marker [x] only after the slice is ready. The controller trusts your validation judgment and only enforces safety, publication, and cleanup.{resume}
+Read the skill and project instructions completely. Spawn its three read-only specialist sub-agents concurrently. You own focused checks, repository validation, iteration, and the fresh verifier. Never commit, push, create a PR, change Git configuration, or edit the checklist. The controller owns checklist state and advances the selected marker only after successful controller checks and publication. The controller trusts your validation judgment and only enforces safety, publication, and cleanup.{resume}
 
 {pull_requests.MANUAL_UI_CHECKS_PROMPT}
 """
@@ -423,15 +424,15 @@ def execute_project(
         if runtime.git(workspace, "branch", "--show-current").stdout.strip() != branch:
             checklist.write_text(original)
             raise SimplifierFailure("simplifier changed the controller-owned branch")
-        require_exact_transition(original, checklist.read_text(), item)
+        require_unchanged_checklist(original, checklist.read_text())
         status = runtime.git(workspace, "status", "--porcelain").stdout.strip()
         if not status:
+            mark_completed_checklist(checklist, original, item)
             terminal_cleanup = True
             return f"{project['name']}: {item.title} required no source changes"
         url = publish(workspace, project, item, branch, agent.stdout, stream)
-        completed_line = completed_checklist_text(original, item).splitlines()[
-            item.line_index
-        ]
+        completed = mark_completed_checklist(checklist, original, item)
+        completed_line = completed.splitlines()[item.line_index]
         state = {
             "project": project["name"],
             "pull_request": int(url.rsplit("/", 1)[-1]),

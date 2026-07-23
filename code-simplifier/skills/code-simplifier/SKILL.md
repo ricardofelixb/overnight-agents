@@ -32,7 +32,7 @@ The main agent alone reconciles findings and edits. Verify every recommendation 
 - Freely diagnose and repair failures caused by the work. Distinguish unrelated, flaky, environmental, and pre-existing failures from regressions.
 - Spawn one fresh read-only verifier with the original target diff and final working-tree diff. Correct or revert any edit whose behavioral equivalence is not proven.
 - Inspect the final diff and run `git diff --check`.
-- Mark exactly the selected checklist marker `[x]` only after the slice is ready. A no-change result is valid and still completes the marker.
+- Do not edit `simplification.md`. The controller owns checklist state and advances the selected marker after it has accepted and published the completed slice.
 
 ## Mandatory completion protocol
 
@@ -41,8 +41,8 @@ This workflow is complete only after every item below has happened in the same a
 1. Run the controller-supplied repository validation **in the foreground**, with a tool timeout long enough for it to finish. Do not start validation in the background, do not use `run_in_background`, and do not defer its result to a later notification.
 2. Read the validation exit result. If it fails, diagnose and repair or report the proven limitation; do not proceed as though it passed.
 3. Run the fresh verifier, inspect the final diff, and run `git diff --check`.
-4. Confirm `simplification.md` is writable, then change exactly the controller-selected `[ ]` marker to `[x]` and reread the line to confirm the update persisted. This file may be ignored by Git; that does not make it read-only or optional.
+4. Leave `simplification.md` unchanged. The controller records completion after it has accepted the run and published any source changes.
 
-Never end a turn with validation, a verifier, or a checklist update pending. Never respond with “standing by”, “I’ll wait”, “I’ll monitor”, or equivalent language. If a tool wait is blocked, use the provided monitoring mechanism immediately and remain in the workflow until it completes; do not end the turn.
+Never end a turn with validation or a verifier pending. Never respond with “standing by”, “I’ll wait”, “I’ll monitor”, or equivalent language. If a tool wait is blocked, use the provided monitoring mechanism immediately and remain in the workflow until it completes; do not end the turn.
 
 Report the simplifications, validation commands and results, verifier conclusion, and any unrelated limitations. Leave all changes uncommitted for the controller.

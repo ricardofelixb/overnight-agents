@@ -24,7 +24,7 @@ if str(REPO_ROOT) not in sys.path:
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from automation import clones, pull_requests, runtime, worktrees
+from automation import checklists, clones, pull_requests, runtime, worktrees
 from policy import ConfigurationFailure, validate_config as validate_configuration
 
 SKILL_ROOT = SCRIPT_DIR / "skills" / "codebase-organizer"
@@ -121,22 +121,24 @@ def first_unchecked_item(text: str) -> ChecklistItem | None:
 
 
 def completed_checklist_text(original: str, item: ChecklistItem) -> str:
-    lines = original.splitlines(keepends=True)
-    line = lines[item.line_index]
-    if "- [ ]" not in line:
-        raise OrganizerFailure("selected checklist marker changed unexpectedly")
-    lines[item.line_index] = line.replace("- [ ]", "- [x]", 1)
-    return "".join(lines)
+    try:
+        return checklists.completed_text(original, item.line_index)
+    except checklists.ChecklistFailure as error:
+        raise OrganizerFailure(str(error)) from error
 
 
-def require_exact_checklist_transition(
-    original: str, current: str, item: ChecklistItem
-) -> None:
-    expected = completed_checklist_text(original, item)
-    if current != expected:
-        raise OrganizerFailure(
-            "agent must change exactly the selected organization marker from [ ] to [x]"
-        )
+def require_unchanged_checklist(original: str, current: str) -> None:
+    try:
+        checklists.require_unchanged(original, current)
+    except checklists.ChecklistFailure as error:
+        raise OrganizerFailure(str(error)) from error
+
+
+def mark_completed_checklist(checklist: Path, original: str, item: ChecklistItem) -> str:
+    try:
+        return checklists.mark_completed(checklist, original, item.line_index)
+    except (OSError, checklists.ChecklistFailure) as error:
+        raise OrganizerFailure(str(error)) from error
 
 
 def atomic_write(path: Path, content: str, mode: int = 0o600) -> None:
@@ -282,7 +284,7 @@ Run focused checks while working, then own the definitive validation and keep di
 
 Run each definitive validation command in the foreground and wait for its actual completion. Read the complete command output and use that command's own exit status as the only pass/fail verdict; never background, pipe, poll, or infer a pass from a successful monitor command. A non-zero validation exit means the work is not ready: do not report success, mark the checklist, or return.
 
-Spawn one fresh read-only verifier with the original approved slice and final working-tree diff. Address every proven issue before returning. The minimal controller trusts your validation judgment and owns only protected-path checks, commit, push, PR creation, and cleanup. Do not commit, push, create or edit a PR, comment on GitHub, merge, weaken validation, or modify any other checklist item. Change exactly this top-level marker from [ ] to [x] only after the behavior-preserving source refactor is complete.{resume}
+Spawn one fresh read-only verifier with the original approved slice and final working-tree diff. Address every proven issue before returning. The minimal controller owns checklist state, protected-path checks, commit, push, PR creation, and cleanup. Do not commit, push, create or edit a PR, comment on GitHub, merge, weaken validation, or modify the checklist. The controller advances the selected marker only after successful controller checks and publication.{resume}
 
 {pull_requests.MANUAL_UI_CHECKS_PROMPT}
 """
@@ -533,14 +535,14 @@ def execute_project(
         if git(workspace, "branch", "--show-current").stdout.strip() != branch:
             atomic_write(checklist_path, original)
             raise OrganizerFailure("organizer changed the controller-owned branch")
-        require_exact_checklist_transition(original, checklist_path.read_text(), item)
+        require_unchanged_checklist(original, checklist_path.read_text())
 
         status = git(workspace, "status", "--porcelain").stdout.strip()
         if not status:
+            mark_completed_checklist(checklist_path, original, item)
             terminal_cleanup = True
             return f"{project['name']}: {item.item_id} required no source changes"
 
-        require_exact_checklist_transition(original, checklist_path.read_text(), item)
         number, url = publish(
             workspace=workspace,
             project=project,
@@ -550,6 +552,7 @@ def execute_project(
             agent_output=agent.stdout,
             stream=stream,
         )
+        mark_completed_checklist(checklist_path, original, item)
         pending = {
             "item_id": item.item_id,
             "project": project["name"],

@@ -66,16 +66,14 @@ class OrganizerTests(unittest.TestCase):
         self.assertIn("Frontend: components/receipts", item.block)
         self.assertNotIn("calendar", item.block)
 
-    def test_exact_transition_accepts_one_marker_only(self) -> None:
+    def test_controller_owns_checklist_transition(self) -> None:
         original = "- [ ] **sales** — Align sales\n  - Keep behavior\n"
         item = MODULE.first_unchecked_item(original)
         assert item
         completed = MODULE.completed_checklist_text(original, item)
-        MODULE.require_exact_checklist_transition(original, completed, item)
-        with self.assertRaisesRegex(MODULE.OrganizerFailure, "exactly"):
-            MODULE.require_exact_checklist_transition(
-                original, completed + "extra\n", item
-            )
+        self.assertIn("- [x] **sales**", completed)
+        with self.assertRaisesRegex(MODULE.OrganizerFailure, "must not modify"):
+            MODULE.require_unchanged_checklist(original, completed + "extra\n")
 
     def test_configuration_requires_boolean_switches_and_array_commands(self) -> None:
         config = self.valid_config()
@@ -250,9 +248,6 @@ class OrganizerTests(unittest.TestCase):
             ) -> subprocess.CompletedProcess[str]:
                 self.assertIn("MANUAL_UI_CHECKS_JSON", prompt)
                 (workspace / "organized.txt").write_text("same behavior\n")
-                checklist.write_text(
-                    checklist.read_text().replace("- [ ] **sales**", "- [x] **sales**")
-                )
                 return subprocess.CompletedProcess(
                     [],
                     0,

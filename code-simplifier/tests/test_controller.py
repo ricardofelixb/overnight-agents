@@ -69,6 +69,38 @@ class SimplifierControllerTests(unittest.TestCase):
             ],
         )
 
+    def test_unique_branch_avoids_local_and_remote_collisions(self) -> None:
+        workspace = Path("/tmp/workspace")
+        occupied = {
+            "refs/remotes/origin/code-simplify/2026-07-22",
+            "refs/heads/code-simplify/2026-07-22-193621",
+            "refs/remotes/origin/code-simplify/2026-07-22-193621-2",
+        }
+
+        def fake_git(
+            _workspace: Path,
+            *arguments: str,
+            **_kwargs: object,
+        ) -> subprocess.CompletedProcess[str]:
+            ref = arguments[-1]
+            return subprocess.CompletedProcess(
+                ["git", *arguments],
+                0 if ref in occupied else 1,
+                "",
+                "",
+            )
+
+        with mock.patch.object(MODULE.runtime, "git", side_effect=fake_git), mock.patch.object(
+            MODULE, "datetime"
+        ) as mocked_datetime:
+            mocked_datetime.now.return_value.strftime.side_effect = [
+                "2026-07-22",
+                "193621",
+            ]
+            branch = MODULE.unique_branch(workspace)
+
+        self.assertEqual(branch, "code-simplify/2026-07-22-193621-3")
+
     def test_clone_workflow_publishes_one_agent_validated_slice(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

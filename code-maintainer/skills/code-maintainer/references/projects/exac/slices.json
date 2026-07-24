@@ -41,7 +41,7 @@
         "convex/mcp/tools/products.ts",
         "convex/mcp/tools/prices.ts",
         "src/components/catalog/products/",
-        "src/components/prices/",
+        "src/components/catalog/prices/",
         "src/app/(dashboard)/productos/",
         "tests/products/"
       ],
@@ -73,14 +73,14 @@
       "id": "invoices-payroll",
       "title": "Invoices and payroll invoices",
       "selectors": [
-        "convex/invoices/",
+        "convex/fiscal/invoices/",
         "convex/entities/employees/",
         "convex/api/v1/invoices.ts",
         "convex/api/v1/payroll.ts",
         "convex/api/v1/withholdings.ts",
         "convex/mcp/tools/invoices.ts",
         "convex/mcp/tools/employees.ts",
-        "src/components/invoices/",
+        "src/components/fiscal/invoices/",
         "src/app/(dashboard)/facturas/",
         "src/app/(dashboard)/nomina/",
         "src/components/settings/sections/payroll/",
@@ -158,11 +158,11 @@
       "selectors": [
         "convex/operations/sales/",
         "convex/members/",
-        "src/components/caja/",
+        "src/components/operations/sales/pos/",
         "src/components/scanner/",
         "src/lib/scanner/",
         "src/app/(dashboard)/caja/",
-        "tests/caja/",
+        "tests/pos/",
         "tests/sales/",
         "tests/members/"
       ],
@@ -176,9 +176,9 @@
       "id": "receivables",
       "title": "Receivables and customer credit",
       "selectors": [
-        "convex/receivables/",
+        "convex/balances/receivables/",
         "convex/api/v1/accounts.ts",
-        "src/components/receivables/",
+        "src/components/balances/receivables/",
         "src/components/catalog/customers/credit/",
         "src/app/(dashboard)/cuentas-por-cobrar/",
         "tests/receivables/"
@@ -193,9 +193,9 @@
       "id": "payables",
       "title": "Payables and supplier balances",
       "selectors": [
-        "convex/payables/",
+        "convex/balances/payables/",
         "convex/api/v1/accounts.ts",
-        "src/components/payables/",
+        "src/components/balances/payables/",
         "src/app/(dashboard)/cuentas-por-pagar/",
         "tests/expenses/"
       ],
@@ -347,15 +347,15 @@
       "id": "declarations-analytics",
       "title": "SAT declarations, opinions, and analytics",
       "selectors": [
-        "convex/sat/declarations/",
-        "convex/sat/opinion/",
-        "convex/sat/fiscal/",
+        "convex/fiscal/sat/declarations/",
+        "convex/fiscal/sat/opinion/",
+        "convex/fiscal/sat/fiscal/",
         "convex/analytics/",
         "convex/documents/projections/",
         "convex/api/v1/declarations.ts",
         "convex/api/v1/reports.ts",
         "convex/mcp/tools/reports.ts",
-        "src/components/declarations/",
+        "src/components/fiscal/declarations/",
         "src/components/resumen/",
         "src/app/(dashboard)/declaraciones/",
         "tests/declarations/",
@@ -374,7 +374,7 @@
       "title": "SAT credentials and synchronization",
       "selectors": [
         "convex/credentials/",
-        "convex/sat/sync/",
+        "convex/fiscal/sat/sync/",
         "convex/organizations/actions/",
         "convex/organizations/mutations/",
         "convex/api/v1/certificates.ts",
@@ -619,7 +619,7 @@
       "id": "sat-providers",
       "title": "SAT provider infrastructure",
       "selectors": [
-        "convex/sat/",
+        "convex/fiscal/sat/",
         "tests/sat/"
       ],
       "search_terms": [

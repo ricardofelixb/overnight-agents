@@ -38,6 +38,7 @@ from profiles import (
     ProfileFailure,
     ProjectProfile,
     load_project_profile,
+    validate_profile_selectors,
 )
 from reporting import (
     MAINTENANCE_REPORT_PROMPT,
@@ -444,6 +445,8 @@ def execute_project(
     pending_message = reconcile_pending(project, profile, stream)
     if pending_message:
         return finish_without_agent(pending_message)
+    if not resuming:
+        validate_profile_selectors(profile, workspace)
     position = load_position(cycle_path(project["name"]), identifiers)
     item = current_slice(profile, position)
     active = active_maintainer_pr(project, stream)

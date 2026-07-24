@@ -19,7 +19,6 @@
       "title": "Catalog and source imports",
       "selectors": [
         "convex/imports/",
-        "convex/api/v1/imports.ts",
         "convex/mcp/tools/imports.ts",
         "src/components/imports/",
         "src/components/settings/sections/imports/",
@@ -36,12 +35,12 @@
       "id": "products-prices",
       "title": "Products, classifications, and prices",
       "selectors": [
-        "convex/products/",
+        "convex/catalog/products/",
         "convex/api/v1/products.ts",
         "convex/api/v1/catalog.ts",
         "convex/mcp/tools/products.ts",
         "convex/mcp/tools/prices.ts",
-        "src/components/products/",
+        "src/components/catalog/products/",
         "src/components/prices/",
         "src/app/(dashboard)/productos/",
         "tests/products/"
@@ -56,9 +55,9 @@
       "id": "quotes",
       "title": "Quotes and quote authoring",
       "selectors": [
-        "convex/quotes/",
+        "convex/operations/quotes/",
         "convex/api/v1/quotes.ts",
-        "src/components/quotes/",
+        "src/components/operations/quotes/",
         "src/app/(dashboard)/cotizaciones/",
         "src/components/shared/forms/items/",
         "src/lib/invoicing/",
@@ -99,10 +98,10 @@
       "id": "sales",
       "title": "Sales and receipts",
       "selectors": [
-        "convex/sales/",
+        "convex/operations/sales/",
         "convex/api/v1/receipts.ts",
         "convex/mcp/tools/receipts.ts",
-        "src/components/sales/",
+        "src/components/operations/sales/",
         "src/app/(dashboard)/ventas/",
         "tests/sales/"
       ],
@@ -116,17 +115,17 @@
       "id": "locations-sales-fields",
       "title": "Locations, prices, and sales fields",
       "selectors": [
-        "convex/locations/",
-        "convex/sales/fields.ts",
-        "convex/sales/fieldValues.ts",
-        "convex/sales/fieldReadContract.ts",
-        "convex/sales/fieldWriteContract.ts",
+        "convex/catalog/locations/",
+        "convex/operations/sales/fields.ts",
+        "convex/operations/sales/fieldValues.ts",
+        "convex/operations/sales/fieldReadContract.ts",
+        "convex/operations/sales/fieldWriteContract.ts",
         "convex/api/v1/locations.ts",
         "convex/api/v1/receiptFields.ts",
-        "src/components/locations/",
-        "src/components/sales/fields/",
+        "src/components/catalog/locations/",
+        "src/components/operations/sales/fields/",
         "src/app/(dashboard)/ubicaciones/",
-        "tests/locations/",
+        "tests/products/",
         "tests/sales/"
       ],
       "search_terms": [
@@ -139,11 +138,11 @@
       "id": "sales-refunds",
       "title": "Sales refunds",
       "selectors": [
-        "convex/sales/refunds/",
+        "convex/operations/sales/refunds/",
         "convex/api/v1/receiptRefunds.ts",
         "convex/documents/projections/receiptRefund.ts",
-        "src/components/sales/dialogs/ReceiptRefundDialog.tsx",
-        "src/components/sales/dialogs/ReceiptRefundAllocations.tsx",
+        "src/components/operations/sales/dialogs/ReceiptRefundDialog.tsx",
+        "src/components/operations/sales/dialogs/ReceiptRefundAllocations.tsx",
         "tests/sales/",
         "tests/documents/"
       ],
@@ -157,7 +156,7 @@
       "id": "cash-register",
       "title": "Cash register and scanning",
       "selectors": [
-        "convex/sales/",
+        "convex/operations/sales/",
         "convex/members/",
         "src/components/caja/",
         "src/components/scanner/",
@@ -178,9 +177,9 @@
       "title": "Receivables and customer credit",
       "selectors": [
         "convex/receivables/",
-        "convex/api/v1/receivables.ts",
+        "convex/api/v1/accounts.ts",
         "src/components/receivables/",
-        "src/components/customers/credit/",
+        "src/components/catalog/customers/credit/",
         "src/app/(dashboard)/cuentas-por-cobrar/",
         "tests/receivables/"
       ],
@@ -195,10 +194,9 @@
       "title": "Payables and supplier balances",
       "selectors": [
         "convex/payables/",
-        "convex/api/v1/payables.ts",
+        "convex/api/v1/accounts.ts",
         "src/components/payables/",
         "src/app/(dashboard)/cuentas-por-pagar/",
-        "tests/payables/",
         "tests/expenses/"
       ],
       "search_terms": [
@@ -211,11 +209,11 @@
       "id": "expenses",
       "title": "Expenses and expense categories",
       "selectors": [
-        "convex/expenses/",
+        "convex/operations/expenses/",
         "convex/api/v1/expenses.ts",
         "convex/api/v1/expenseCategories.ts",
         "convex/mcp/tools/expenses.ts",
-        "src/components/expenses/",
+        "src/components/operations/expenses/",
         "src/app/(dashboard)/gastos/",
         "tests/expenses/"
       ],
@@ -229,12 +227,11 @@
       "id": "customers",
       "title": "Customers and contacts",
       "selectors": [
-        "convex/customers/",
+        "convex/catalog/customers/",
         "convex/entities/",
-        "convex/api/v1/customers.ts",
         "convex/api/v1/contacts.ts",
         "convex/mcp/tools/contacts.ts",
-        "src/components/customers/",
+        "src/components/catalog/customers/customers/",
         "src/app/(dashboard)/clientes/",
         "tests/customers/"
       ],
@@ -248,10 +245,9 @@
       "id": "providers",
       "title": "Providers and supplier links",
       "selectors": [
-        "convex/customers/",
-        "convex/products/",
-        "convex/api/v1/providers.ts",
-        "src/components/customers/providers/",
+        "convex/catalog/customers/",
+        "convex/catalog/products/",
+        "src/components/catalog/customers/providers/",
         "src/app/(dashboard)/proveedores/",
         "tests/customers/",
         "tests/products/"
@@ -402,10 +398,10 @@
       "id": "calendar",
       "title": "Calendar events and calendar UI",
       "selectors": [
-        "convex/calendar/",
+        "convex/operations/calendar/",
         "convex/api/v1/calendarEvents.ts",
         "convex/mcp/tools/calendar.ts",
-        "src/components/calendar/",
+        "src/components/operations/calendar/",
         "src/app/(dashboard)/calendario/",
         "tests/calendar/"
       ],
@@ -419,8 +415,7 @@
       "id": "self-invoice-portal",
       "title": "Self-invoice public portal",
       "selectors": [
-        "convex/publicPortals/selfInvoice/",
-        "convex/sales/",
+        "convex/operations/sales/",
         "src/app/autofactura/",
         "src/components/public-portals/self-invoice/",
         "src/components/settings/sections/portals/",
@@ -437,7 +432,7 @@
       "title": "Payment public portal and refunds",
       "selectors": [
         "convex/publicPortals/paymentPortal/",
-        "convex/integrations/financial/providers/stripe/",
+        "convex/integrations/financial/lib/stripe/",
         "convex/webhooks/",
         "src/components/public-portals/payment-portal/",
         "src/app/pagar/",
@@ -570,7 +565,7 @@
       "title": "Email and notification infrastructure",
       "selectors": [
         "convex/email/",
-        "convex/telegram/",
+        "convex/integrations/messaging/telegram/",
         "convex/system/",
         "tests/email/",
         "tests/telegram/",
@@ -622,15 +617,13 @@
     },
     {
       "id": "sat-providers",
-      "title": "SAT and Syntage provider infrastructure",
+      "title": "SAT provider infrastructure",
       "selectors": [
         "convex/sat/",
-        "convex/syntage/",
         "tests/sat/"
       ],
       "search_terms": [
         "SAT",
-        "Syntage",
         "provider parsing"
       ],
       "guidance_domains": [
@@ -661,7 +654,6 @@
       "selectors": [
         "convex/webhooks/",
         "convex/banking/",
-        "convex/integrations/financial/providers/",
         "tests/banking/",
         "tests/integrations/",
         "tests/publicPortals/"
@@ -794,7 +786,7 @@
       "selectors": [
         "src/components/pdf/",
         "src/lib/pdf/",
-        "src/components/sales/print/",
+        "src/components/operations/sales/print/",
         "tests/app/",
         "tests/documents/"
       ],

@@ -35,7 +35,9 @@ Semantic slice state lives under `code-maintainer/state/cycles/`. A no-change
 audit advances immediately. A changed slice advances only after its PR merges;
 a closed-unmerged PR retries the same semantic slice. Finishing the final slice
 increments the cycle and starts again automatically. Stable slice IDs survive
-folder and filename changes.
+folder and filename changes. Before starting a fresh slice, the controller
+fails closed if any registered selector no longer resolves in the current
+workspace and reports every stale path that must be updated.
 
 Runs use isolated shared workspaces under `automation/`. Exac uses
 `scripts/setup-worktree.sh --convex-mode local` and

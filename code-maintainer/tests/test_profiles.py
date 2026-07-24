@@ -8,7 +8,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from profiles import ROLE_SET, ProfileFailure, load_project_profile, load_slices
+from profiles import (
+    ROLE_SET,
+    ProfileFailure,
+    load_project_profile,
+    load_slices,
+    validate_profile_selectors,
+)
 
 
 class ProjectProfileTests(unittest.TestCase):
@@ -76,6 +82,74 @@ class ProjectProfileTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(ProfileFailure, "unsafe selector"):
                 load_slices(path)
+
+    def test_selector_validation_reports_every_stale_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary) / "workspace"
+            workspace.mkdir()
+            (workspace / "source").mkdir()
+            (workspace / "source/current.ts").write_text("")
+            profile = load_project_profile(
+                Path(__file__).resolve().parent.parent / "skills/code-maintainer",
+                "exac",
+            )
+            item = profile.slices[0]
+            profile = profile.__class__(
+                name=profile.name,
+                root=profile.root,
+                manifest_path=profile.manifest_path,
+                shared_context=profile.shared_context,
+                role_context=profile.role_context,
+                slices_path=profile.slices_path,
+                slices=(
+                    item.__class__(
+                        identifier="example",
+                        title="Example",
+                        selectors=("source/current.ts", "source/missing.ts"),
+                        search_terms=(),
+                        roles=item.roles,
+                        guidance_domains=(),
+                    ),
+                ),
+            )
+
+            with self.assertRaisesRegex(
+                ProfileFailure,
+                r"(?s)example: source/missing\.ts.*Update",
+            ):
+                validate_profile_selectors(profile, workspace)
+
+    def test_selector_validation_supports_recursive_globs(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary) / "workspace"
+            validator = workspace / "convex/domain/validators.ts"
+            validator.parent.mkdir(parents=True)
+            validator.write_text("")
+            profile = load_project_profile(
+                Path(__file__).resolve().parent.parent / "skills/code-maintainer",
+                "exac",
+            )
+            item = profile.slices[0]
+            profile = profile.__class__(
+                name=profile.name,
+                root=profile.root,
+                manifest_path=profile.manifest_path,
+                shared_context=profile.shared_context,
+                role_context=profile.role_context,
+                slices_path=profile.slices_path,
+                slices=(
+                    item.__class__(
+                        identifier="schema",
+                        title="Schema",
+                        selectors=("convex/**/validators.ts",),
+                        search_terms=(),
+                        roles=item.roles,
+                        guidance_domains=(),
+                    ),
+                ),
+            )
+
+            validate_profile_selectors(profile, workspace)
 
 
 if __name__ == "__main__":

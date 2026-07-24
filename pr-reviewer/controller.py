@@ -1554,7 +1554,7 @@ def simplification_is_skipped(pr: dict[str, Any], project: dict[str, Any]) -> st
     head = str(pr.get("headRefName", ""))
     patterns = project.get(
         "simplification_skip_head_patterns",
-        ["code-simplify/*", "code-organize/*"],
+        ["code-maintain/*", "code-simplify/*"],
     )
     if any(fnmatch.fnmatchcase(head, pattern) for pattern in patterns):
         return "already_simplified_automation"

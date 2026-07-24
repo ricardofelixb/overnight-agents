@@ -2,7 +2,7 @@
 .env
 !pr-reviewer/.env.example
 config.sh
-code-simplifier/config.json
+code-maintainer/config.json
 logs/
 .rotation_index
 sheet-analyzer/
@@ -13,8 +13,6 @@ __pycache__/
 pr-reviewer/config.json
 pr-reviewer/logs/
 pr-reviewer/state/
-code-simplifier/state/
-codebase-organizer/config.json
-codebase-organizer/logs/
-codebase-organizer/state/
+code-maintainer/state/
+code-maintainer/logs/
 state/

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Code Maintainer"
+  short_description: "Evidence-backed autonomous code maintenance"
+  default_prompt: "Use $code-maintainer to maintain the controller-selected semantic codebase slice."

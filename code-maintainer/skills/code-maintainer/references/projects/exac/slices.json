@@ -1,0 +1,887 @@
+{
+  "version": 1,
+  "defaults": {
+    "roles": [
+      "reuse-simplification",
+      "maintainability-organization",
+      "efficiency-performance",
+      "correctness-reliability",
+      "security-hardening"
+    ],
+    "guidance_domains": [
+      "convex",
+      "react"
+    ]
+  },
+  "slices": [
+    {
+      "id": "imports",
+      "title": "Catalog and source imports",
+      "selectors": [
+        "convex/imports/",
+        "convex/api/v1/imports.ts",
+        "convex/mcp/tools/imports.ts",
+        "src/components/imports/",
+        "src/components/settings/sections/imports/",
+        "scripts/imports/",
+        "tests/imports/"
+      ],
+      "search_terms": [
+        "imports",
+        "firebird",
+        "catalog import"
+      ]
+    },
+    {
+      "id": "products-prices",
+      "title": "Products, classifications, and prices",
+      "selectors": [
+        "convex/products/",
+        "convex/api/v1/products.ts",
+        "convex/api/v1/catalog.ts",
+        "convex/mcp/tools/products.ts",
+        "convex/mcp/tools/prices.ts",
+        "src/components/products/",
+        "src/components/prices/",
+        "src/app/(dashboard)/productos/",
+        "tests/products/"
+      ],
+      "search_terms": [
+        "products",
+        "prices",
+        "catalog"
+      ]
+    },
+    {
+      "id": "quotes",
+      "title": "Quotes and quote authoring",
+      "selectors": [
+        "convex/quotes/",
+        "convex/api/v1/quotes.ts",
+        "src/components/quotes/",
+        "src/app/(dashboard)/cotizaciones/",
+        "src/components/shared/forms/items/",
+        "src/lib/invoicing/",
+        "tests/quotes/"
+      ],
+      "search_terms": [
+        "quotes",
+        "cotizaciones",
+        "quote authoring"
+      ]
+    },
+    {
+      "id": "invoices-payroll",
+      "title": "Invoices and payroll invoices",
+      "selectors": [
+        "convex/invoices/",
+        "convex/entities/employees/",
+        "convex/api/v1/invoices.ts",
+        "convex/api/v1/payroll.ts",
+        "convex/api/v1/withholdings.ts",
+        "convex/mcp/tools/invoices.ts",
+        "convex/mcp/tools/employees.ts",
+        "src/components/invoices/",
+        "src/app/(dashboard)/facturas/",
+        "src/app/(dashboard)/nomina/",
+        "src/components/settings/sections/payroll/",
+        "tests/invoices/",
+        "tests/employees/"
+      ],
+      "search_terms": [
+        "invoices",
+        "payroll",
+        "nomina",
+        "withholdings"
+      ]
+    },
+    {
+      "id": "sales",
+      "title": "Sales and receipts",
+      "selectors": [
+        "convex/sales/",
+        "convex/api/v1/receipts.ts",
+        "convex/mcp/tools/receipts.ts",
+        "src/components/sales/",
+        "src/app/(dashboard)/ventas/",
+        "tests/sales/"
+      ],
+      "search_terms": [
+        "sales",
+        "receipts",
+        "ventas"
+      ]
+    },
+    {
+      "id": "locations-sales-fields",
+      "title": "Locations, prices, and sales fields",
+      "selectors": [
+        "convex/locations/",
+        "convex/sales/fields.ts",
+        "convex/sales/fieldValues.ts",
+        "convex/sales/fieldReadContract.ts",
+        "convex/sales/fieldWriteContract.ts",
+        "convex/api/v1/locations.ts",
+        "convex/api/v1/receiptFields.ts",
+        "src/components/locations/",
+        "src/components/sales/fields/",
+        "src/app/(dashboard)/ubicaciones/",
+        "tests/locations/",
+        "tests/sales/"
+      ],
+      "search_terms": [
+        "locations",
+        "receipt fields",
+        "field values"
+      ]
+    },
+    {
+      "id": "sales-refunds",
+      "title": "Sales refunds",
+      "selectors": [
+        "convex/sales/refunds/",
+        "convex/api/v1/receiptRefunds.ts",
+        "convex/documents/projections/receiptRefund.ts",
+        "src/components/sales/dialogs/ReceiptRefundDialog.tsx",
+        "src/components/sales/dialogs/ReceiptRefundAllocations.tsx",
+        "tests/sales/",
+        "tests/documents/"
+      ],
+      "search_terms": [
+        "receipt refunds",
+        "refund allocations",
+        "sales refunds"
+      ]
+    },
+    {
+      "id": "cash-register",
+      "title": "Cash register and scanning",
+      "selectors": [
+        "convex/sales/",
+        "convex/members/",
+        "src/components/caja/",
+        "src/components/scanner/",
+        "src/lib/scanner/",
+        "src/app/(dashboard)/caja/",
+        "tests/caja/",
+        "tests/sales/",
+        "tests/members/"
+      ],
+      "search_terms": [
+        "caja",
+        "cash register",
+        "scanner"
+      ]
+    },
+    {
+      "id": "receivables",
+      "title": "Receivables and customer credit",
+      "selectors": [
+        "convex/receivables/",
+        "convex/api/v1/receivables.ts",
+        "src/components/receivables/",
+        "src/components/customers/credit/",
+        "src/app/(dashboard)/cuentas-por-cobrar/",
+        "tests/receivables/"
+      ],
+      "search_terms": [
+        "receivables",
+        "customer credit",
+        "credit accounts"
+      ]
+    },
+    {
+      "id": "payables",
+      "title": "Payables and supplier balances",
+      "selectors": [
+        "convex/payables/",
+        "convex/api/v1/payables.ts",
+        "src/components/payables/",
+        "src/app/(dashboard)/cuentas-por-pagar/",
+        "tests/payables/",
+        "tests/expenses/"
+      ],
+      "search_terms": [
+        "payables",
+        "supplier balances",
+        "payable accounts"
+      ]
+    },
+    {
+      "id": "expenses",
+      "title": "Expenses and expense categories",
+      "selectors": [
+        "convex/expenses/",
+        "convex/api/v1/expenses.ts",
+        "convex/api/v1/expenseCategories.ts",
+        "convex/mcp/tools/expenses.ts",
+        "src/components/expenses/",
+        "src/app/(dashboard)/gastos/",
+        "tests/expenses/"
+      ],
+      "search_terms": [
+        "expenses",
+        "expense categories",
+        "gastos"
+      ]
+    },
+    {
+      "id": "customers",
+      "title": "Customers and contacts",
+      "selectors": [
+        "convex/customers/",
+        "convex/entities/",
+        "convex/api/v1/customers.ts",
+        "convex/api/v1/contacts.ts",
+        "convex/mcp/tools/contacts.ts",
+        "src/components/customers/",
+        "src/app/(dashboard)/clientes/",
+        "tests/customers/"
+      ],
+      "search_terms": [
+        "customers",
+        "contacts",
+        "clientes"
+      ]
+    },
+    {
+      "id": "providers",
+      "title": "Providers and supplier links",
+      "selectors": [
+        "convex/customers/",
+        "convex/products/",
+        "convex/api/v1/providers.ts",
+        "src/components/customers/providers/",
+        "src/app/(dashboard)/proveedores/",
+        "tests/customers/",
+        "tests/products/"
+      ],
+      "search_terms": [
+        "providers",
+        "supplier links",
+        "proveedores"
+      ]
+    },
+    {
+      "id": "organizations-settings",
+      "title": "Organizations and organization settings",
+      "selectors": [
+        "convex/organizations/",
+        "convex/lib/workos.ts",
+        "convex/storage/",
+        "convex/api/v1/organization.ts",
+        "convex/mcp/tools/organization.ts",
+        "src/components/organizations/",
+        "src/components/settings/sections/organization/",
+        "src/components/layout/sidebar/",
+        "src/hooks/useWorkosOrganizations.ts",
+        "tests/organizations/",
+        "tests/settings/",
+        "tests/storage/"
+      ],
+      "search_terms": [
+        "organizations",
+        "organization settings",
+        "team switcher"
+      ],
+      "guidance_domains": [
+        "convex",
+        "react",
+        "workos"
+      ]
+    },
+    {
+      "id": "members-access",
+      "title": "Members, invitations, and access",
+      "selectors": [
+        "convex/members/",
+        "convex/lib/workosWidgets.ts",
+        "convex/api/v1/members.ts",
+        "convex/mcp/tools/members.ts",
+        "src/components/settings/",
+        "src/contexts/WorkOSMembersContext.tsx",
+        "src/hooks/useWorkosMembers.ts",
+        "tests/members/",
+        "tests/security/"
+      ],
+      "search_terms": [
+        "members",
+        "invitations",
+        "permissions"
+      ],
+      "guidance_domains": [
+        "convex",
+        "react",
+        "workos"
+      ]
+    },
+    {
+      "id": "auth-users-profile",
+      "title": "Authentication, users, and profile",
+      "selectors": [
+        "convex/auth/",
+        "convex/auth.config.ts",
+        "convex/lib/workos.ts",
+        "convex/lib/workosWidgets.ts",
+        "convex/oauth/",
+        "convex/users/",
+        "convex/profile/",
+        "src/components/auth/",
+        "src/app/auth/",
+        "src/app/api/auth/",
+        "src/contexts/",
+        "src/lib/auth.ts",
+        "tests/auth/",
+        "tests/profile/"
+      ],
+      "search_terms": [
+        "authentication",
+        "oauth",
+        "users",
+        "profile",
+        "workos"
+      ],
+      "guidance_domains": [
+        "convex",
+        "react",
+        "workos"
+      ]
+    },
+    {
+      "id": "declarations-analytics",
+      "title": "SAT declarations, opinions, and analytics",
+      "selectors": [
+        "convex/sat/declarations/",
+        "convex/sat/opinion/",
+        "convex/sat/fiscal/",
+        "convex/analytics/",
+        "convex/documents/projections/",
+        "convex/api/v1/declarations.ts",
+        "convex/api/v1/reports.ts",
+        "convex/mcp/tools/reports.ts",
+        "src/components/declarations/",
+        "src/components/resumen/",
+        "src/app/(dashboard)/declaraciones/",
+        "tests/declarations/",
+        "tests/analytics/",
+        "tests/documents/"
+      ],
+      "search_terms": [
+        "declarations",
+        "tax compliance opinion",
+        "analytics",
+        "SAT"
+      ]
+    },
+    {
+      "id": "credentials-sync",
+      "title": "SAT credentials and synchronization",
+      "selectors": [
+        "convex/credentials/",
+        "convex/sat/sync/",
+        "convex/organizations/actions/",
+        "convex/organizations/mutations/",
+        "convex/api/v1/certificates.ts",
+        "convex/api/v1/taxProfile.ts",
+        "convex/mcp/tools/certificates.ts",
+        "convex/mcp/tools/taxProfile.ts",
+        "src/components/settings/sections/certificates/",
+        "src/components/settings/sections/synchronization/",
+        "tests/credentials/",
+        "tests/settings/",
+        "tests/sat/"
+      ],
+      "search_terms": [
+        "credentials",
+        "certificates",
+        "SAT synchronization",
+        "tax profile"
+      ]
+    },
+    {
+      "id": "calendar",
+      "title": "Calendar events and calendar UI",
+      "selectors": [
+        "convex/calendar/",
+        "convex/api/v1/calendarEvents.ts",
+        "convex/mcp/tools/calendar.ts",
+        "src/components/calendar/",
+        "src/app/(dashboard)/calendario/",
+        "tests/calendar/"
+      ],
+      "search_terms": [
+        "calendar",
+        "calendar events",
+        "calendario"
+      ]
+    },
+    {
+      "id": "self-invoice-portal",
+      "title": "Self-invoice public portal",
+      "selectors": [
+        "convex/publicPortals/selfInvoice/",
+        "convex/sales/",
+        "src/app/autofactura/",
+        "src/components/public-portals/self-invoice/",
+        "src/components/settings/sections/portals/",
+        "tests/publicPortals/"
+      ],
+      "search_terms": [
+        "self invoice",
+        "autofactura",
+        "public portal"
+      ]
+    },
+    {
+      "id": "payment-portal",
+      "title": "Payment public portal and refunds",
+      "selectors": [
+        "convex/publicPortals/paymentPortal/",
+        "convex/integrations/financial/providers/stripe/",
+        "convex/webhooks/",
+        "src/components/public-portals/payment-portal/",
+        "src/app/pagar/",
+        "tests/publicPortals/"
+      ],
+      "search_terms": [
+        "payment portal",
+        "payment attempts",
+        "portal refunds"
+      ]
+    },
+    {
+      "id": "financial-integrations",
+      "title": "Financial integrations and providers",
+      "selectors": [
+        "convex/integrations/financial/",
+        "convex/api/v1/integrations.ts",
+        "convex/mcp/tools/integrations.ts",
+        "src/components/integrations/financial/",
+        "tests/integrations/financial/"
+      ],
+      "search_terms": [
+        "financial integrations",
+        "fintoc",
+        "stripe"
+      ]
+    },
+    {
+      "id": "treasury-banking",
+      "title": "Treasury, banking, and account connectivity",
+      "selectors": [
+        "convex/banking/",
+        "convex/integrations/financial/",
+        "convex/api/v1/accounts.ts",
+        "convex/mcp/tools/accounts.ts",
+        "src/components/treasury/",
+        "src/app/(dashboard)/tesoreria/",
+        "tests/treasury/",
+        "tests/banking/"
+      ],
+      "search_terms": [
+        "treasury",
+        "banking",
+        "accounts",
+        "tesoreria"
+      ]
+    },
+    {
+      "id": "api-keys-programmatic",
+      "title": "API keys and programmatic capabilities",
+      "selectors": [
+        "convex/apiKeys/",
+        "convex/programmatic/",
+        "convex/api/keys.ts",
+        "convex/api/v1/apiKeys.ts",
+        "convex/mcp/tools/apiKeys.ts",
+        "src/components/settings/",
+        "tests/api/",
+        "tests/programmatic/"
+      ],
+      "search_terms": [
+        "api keys",
+        "capability manifest",
+        "programmatic access"
+      ]
+    },
+    {
+      "id": "public-api",
+      "title": "Public REST API and operation contracts",
+      "selectors": [
+        "convex/api/",
+        "convex/http.ts",
+        "convex/programmatic/",
+        "tests/api/",
+        "tests/programmatic/",
+        "tests/docs/"
+      ],
+      "search_terms": [
+        "public api",
+        "openapi",
+        "operation contract"
+      ],
+      "guidance_domains": [
+        "convex"
+      ]
+    },
+    {
+      "id": "mcp",
+      "title": "MCP transport and tools",
+      "selectors": [
+        "convex/mcp/",
+        "convex/programmatic/",
+        "tests/mcp/",
+        "tests/programmatic/",
+        "tests/docs/"
+      ],
+      "search_terms": [
+        "MCP",
+        "tool contract",
+        "capability manifest"
+      ],
+      "guidance_domains": [
+        "convex"
+      ]
+    },
+    {
+      "id": "documents-files",
+      "title": "Documents, files, and projections",
+      "selectors": [
+        "convex/documents/",
+        "convex/files/",
+        "convex/api/v1/documentResources.ts",
+        "convex/api/v1/files.ts",
+        "convex/mcp/tools/documents.ts",
+        "convex/mcp/tools/files.ts",
+        "tests/documents/",
+        "tests/files/"
+      ],
+      "search_terms": [
+        "documents",
+        "files",
+        "projections"
+      ],
+      "guidance_domains": [
+        "convex"
+      ]
+    },
+    {
+      "id": "email-notifications",
+      "title": "Email and notification infrastructure",
+      "selectors": [
+        "convex/email/",
+        "convex/telegram/",
+        "convex/system/",
+        "tests/email/",
+        "tests/telegram/",
+        "tests/observability/"
+      ],
+      "search_terms": [
+        "email",
+        "notifications",
+        "telegram",
+        "alerts"
+      ],
+      "guidance_domains": [
+        "convex"
+      ]
+    },
+    {
+      "id": "convex-core",
+      "title": "Core Convex helpers and domain infrastructure",
+      "selectors": [
+        "convex/core/",
+        "convex/lib/",
+        "tests/lib/",
+        "tests/architecture/"
+      ],
+      "search_terms": [
+        "core convex",
+        "domain helper",
+        "authorization helper"
+      ],
+      "guidance_domains": [
+        "convex"
+      ]
+    },
+    {
+      "id": "storage-runtime",
+      "title": "Storage and file runtime",
+      "selectors": [
+        "convex/storage/",
+        "convex/files/",
+        "src/lib/uploads/",
+        "tests/storage/",
+        "tests/files/"
+      ],
+      "search_terms": [
+        "storage",
+        "uploads",
+        "R2"
+      ]
+    },
+    {
+      "id": "sat-providers",
+      "title": "SAT and Syntage provider infrastructure",
+      "selectors": [
+        "convex/sat/",
+        "convex/syntage/",
+        "tests/sat/"
+      ],
+      "search_terms": [
+        "SAT",
+        "Syntage",
+        "provider parsing"
+      ],
+      "guidance_domains": [
+        "convex"
+      ]
+    },
+    {
+      "id": "jobs-observability",
+      "title": "System jobs, schedules, and observability",
+      "selectors": [
+        "convex/system/",
+        "convex/crons.ts",
+        "tests/observability/",
+        "tests/seeding/"
+      ],
+      "search_terms": [
+        "scheduled jobs",
+        "crons",
+        "observability"
+      ],
+      "guidance_domains": [
+        "convex"
+      ]
+    },
+    {
+      "id": "webhooks",
+      "title": "Webhook trust boundaries",
+      "selectors": [
+        "convex/webhooks/",
+        "convex/banking/",
+        "convex/integrations/financial/providers/",
+        "tests/banking/",
+        "tests/integrations/",
+        "tests/publicPortals/"
+      ],
+      "search_terms": [
+        "webhooks",
+        "signature verification",
+        "replay"
+      ],
+      "guidance_domains": [
+        "convex"
+      ]
+    },
+    {
+      "id": "schema-validators",
+      "title": "Schema, validators, and data boundaries",
+      "selectors": [
+        "convex/schema.ts",
+        "convex/**/validators.ts",
+        "convex/**/tableValidators.ts",
+        "tests/architecture/",
+        "tests/security/"
+      ],
+      "search_terms": [
+        "schema",
+        "validators",
+        "indexes"
+      ],
+      "guidance_domains": [
+        "convex"
+      ]
+    },
+    {
+      "id": "app-shell",
+      "title": "Application shell and public layouts",
+      "selectors": [
+        "src/app/layout.tsx",
+        "src/app/page.tsx",
+        "src/app/styles/",
+        "src/components/ConvexClientProvider.tsx",
+        "src/components/PublicConvexProvider.tsx",
+        "src/components/ErrorBoundary.tsx",
+        "src/components/ThemeProvider.tsx",
+        "tests/app/"
+      ],
+      "search_terms": [
+        "application shell",
+        "providers",
+        "root layout"
+      ],
+      "guidance_domains": [
+        "react"
+      ]
+    },
+    {
+      "id": "dashboard-navigation",
+      "title": "Dashboard shell and navigation",
+      "selectors": [
+        "src/app/(dashboard)/layout.tsx",
+        "src/components/layout/",
+        "src/components/dashboard/",
+        "src/lib/navigation/",
+        "tests/app/",
+        "tests/navigation/"
+      ],
+      "search_terms": [
+        "dashboard shell",
+        "sidebar",
+        "navigation"
+      ],
+      "guidance_domains": [
+        "react"
+      ]
+    },
+    {
+      "id": "settings-shell",
+      "title": "Settings shell, sections, and cache",
+      "selectors": [
+        "src/components/settings/",
+        "tests/settings/"
+      ],
+      "search_terms": [
+        "settings modal",
+        "settings cache",
+        "settings sections"
+      ],
+      "guidance_domains": [
+        "react"
+      ]
+    },
+    {
+      "id": "shared-ui",
+      "title": "Shared UI primitives and design system",
+      "selectors": [
+        "src/components/ui/",
+        "src/components/shared/",
+        "src/lib/design-system/",
+        "tests/ui/",
+        "tests/architecture/"
+      ],
+      "search_terms": [
+        "shared UI",
+        "design system",
+        "data table"
+      ],
+      "guidance_domains": [
+        "react"
+      ]
+    },
+    {
+      "id": "shared-forms",
+      "title": "Shared forms and fiscal item authoring",
+      "selectors": [
+        "src/components/shared/forms/",
+        "src/lib/invoicing/",
+        "tests/app/"
+      ],
+      "search_terms": [
+        "shared forms",
+        "invoice item",
+        "fiscal authoring"
+      ],
+      "guidance_domains": [
+        "react"
+      ]
+    },
+    {
+      "id": "pdf-print-preview",
+      "title": "PDF, print, and document preview",
+      "selectors": [
+        "src/components/pdf/",
+        "src/lib/pdf/",
+        "src/components/sales/print/",
+        "tests/app/",
+        "tests/documents/"
+      ],
+      "search_terms": [
+        "PDF",
+        "print",
+        "document preview"
+      ],
+      "guidance_domains": [
+        "react"
+      ]
+    },
+    {
+      "id": "client-infrastructure",
+      "title": "React contexts, hooks, and client infrastructure",
+      "selectors": [
+        "src/contexts/",
+        "src/hooks/",
+        "src/lib/",
+        "tests/app/",
+        "tests/lib/"
+      ],
+      "search_terms": [
+        "contexts",
+        "hooks",
+        "client infrastructure"
+      ],
+      "guidance_domains": [
+        "react"
+      ]
+    },
+    {
+      "id": "docs-experience",
+      "title": "Documentation experience and generated contracts",
+      "selectors": [
+        "src/app/(docs)/",
+        "src/components/docs/",
+        "src/lib/docs/",
+        "scripts/generate-programmatic-docs.mjs",
+        "tests/docs/",
+        "tests/api/",
+        "tests/programmatic/"
+      ],
+      "search_terms": [
+        "documentation",
+        "OpenAPI",
+        "MCP docs"
+      ],
+      "guidance_domains": [
+        "react"
+      ]
+    },
+    {
+      "id": "marketing",
+      "title": "Marketing and product demonstrations",
+      "selectors": [
+        "src/app/(marketing)/",
+        "src/components/marketing/",
+        "src/lib/design-system/",
+        "tests/marketing/",
+        "tests/ui/"
+      ],
+      "search_terms": [
+        "marketing",
+        "landing",
+        "product demo"
+      ],
+      "guidance_domains": [
+        "react"
+      ]
+    },
+    {
+      "id": "scripts-tooling",
+      "title": "Repository scripts and maintenance tooling",
+      "selectors": [
+        "scripts/",
+        "tests/imports/",
+        "tests/architecture/"
+      ],
+      "search_terms": [
+        "scripts",
+        "validation harness",
+        "repository tooling"
+      ],
+      "guidance_domains": [
+        "react"
+      ]
+    }
+  ]
+}

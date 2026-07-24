@@ -319,7 +319,7 @@ class ReviewSafetyTests(unittest.TestCase):
             "already_simplified_automation",
         )
         self.assertEqual(
-            simplification_is_skipped({"headRefName": "code-organize/sales"}, project),
+            simplification_is_skipped({"headRefName": "code-maintain/calendar"}, project),
             "already_simplified_automation",
         )
         self.assertEqual(

@@ -136,8 +136,10 @@ def ensure_locally_ignored(cwd: Path, relative_path: str) -> None:
 
 
 def provision_checklist(
-    workspace: Path, checklist_file: Path, checklist_name: str
+    workspace: Path, checklist_file: Path | None, checklist_name: str
 ) -> None:
+    if checklist_file is None:
+        return
     tracked = git(
         workspace,
         "ls-files",
@@ -170,9 +172,9 @@ def prepare_linked_worktree(
     project_name: str,
     base_branch: str,
     branch_prefix: str,
-    checklist_file: Path,
-    checklist_name: str,
-    automation_label: str,
+    checklist_file: Path | None = None,
+    checklist_name: str = "simplification.md",
+    automation_label: str = "maintenance",
     stream: TextIO | None = None,
 ) -> dict[str, str | bool]:
     source = source_path.expanduser().resolve(strict=True)

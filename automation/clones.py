@@ -99,13 +99,15 @@ def provision_symlink(cwd: Path, relative_path: str, source: Path) -> None:
 def provision_runtime_files(
     workspace: Path,
     environment_file: Path,
-    checklist_file: Path,
+    checklist_file: Path | None = None,
     checklist_name: str = "simplification.md",
 ) -> None:
     environment = require_private_file(environment_file, "project environment file")
     require_ignored(workspace, ".env.local")
     provision_symlink(workspace, ".env.local", environment)
 
+    if checklist_file is None:
+        return
     tracked_checklist = git(
         workspace,
         "ls-files",
@@ -151,7 +153,7 @@ def prepare_workspace(
     base_branch: str,
     branch_prefix: str,
     environment_file: Path,
-    checklist_file: Path,
+    checklist_file: Path | None = None,
     checklist_name: str = "simplification.md",
     automation_label: str = "simplifier",
 ) -> dict[str, str | bool]:

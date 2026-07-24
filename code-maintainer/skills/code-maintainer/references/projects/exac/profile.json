@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "project": "exac",
+  "shared_context": [
+    "core.md",
+    "authoritative-sources.md"
+  ],
+  "role_context": {
+    "reuse-simplification": [
+      "ownership.md"
+    ],
+    "maintainability-organization": [
+      "ownership.md",
+      "canonical-structure.md",
+      "workos-boundaries.md"
+    ],
+    "efficiency-performance": [
+      "ownership.md",
+      "performance.md",
+      "workos-boundaries.md"
+    ],
+    "correctness-reliability": [
+      "ownership.md",
+      "correctness-security.md",
+      "workos-boundaries.md"
+    ],
+    "security-hardening": [
+      "ownership.md",
+      "correctness-security.md",
+      "workos-boundaries.md"
+    ]
+  },
+  "slices": "slices.json"
+}

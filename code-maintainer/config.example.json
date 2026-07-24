@@ -1,0 +1,42 @@
+{
+  "version": 2,
+  "enabled": false,
+  "schedule": "0 1,7,13,19 * * *",
+  "provider": "codex",
+  "codex_model": "gpt-5.6-terra",
+  "codex_reasoning_effort": "high",
+  "claude_model": "claude-opus-4-8",
+  "claude_effort": "medium",
+  "agent_timeout_seconds": 7200,
+  "max_changed_files": 80,
+  "max_diff_bytes": 750000,
+  "context": {
+    "skills_lock": "../pr-reviewer/state/skills.lock.json",
+    "skill_release_root": "../pr-reviewer/state/skill-releases",
+    "skill_max_age_days": 8,
+    "ai_files_root": "../pr-reviewer/state/ai-files",
+    "ai_files_max_age_days": 8,
+    "docs_catalog": "../pr-reviewer/docs-catalog.json",
+    "docs_refresh_script": "../pr-reviewer/skills/autonomous-pr-review/scripts/refresh_docs.py",
+    "docs_cache": "../pr-reviewer/state/docs-cache",
+    "docs_max_age_hours": 24,
+    "max_document_bytes": 5000000
+  },
+  "projects": [
+    {
+      "name": "example",
+      "enabled": false,
+      "source_path": "/absolute/path/to/project",
+      "repository": "owner/repository",
+      "base_branch": "main",
+      "environment_file": "/absolute/path/to/private/example.env.local",
+      "validation_commands": [
+        [
+          "pnpm",
+          "run",
+          "validate"
+        ]
+      ]
+    }
+  ]
+}

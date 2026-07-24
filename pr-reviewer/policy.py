@@ -172,7 +172,7 @@ def validate_config(config: dict[str, Any], config_path: Path) -> list[str]:
             errors.append(f"{name}: simplify_human_prs must be boolean")
         skip_patterns = merged.get(
             "simplification_skip_head_patterns",
-            ["code-simplify/*", "code-organize/*"],
+            ["code-maintain/*", "code-simplify/*"],
         )
         if not isinstance(skip_patterns, list) or not skip_patterns or not all(
             isinstance(pattern, str) and pattern and "\0" not in pattern for pattern in skip_patterns

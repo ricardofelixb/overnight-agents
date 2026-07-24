@@ -4,36 +4,44 @@ Autonomous code-maintenance agents powered by Codex or Claude Code. Scheduled ag
 
 ## Automations
 
-### code-simplifier
+### code-maintainer
 
-Works through your codebase folder-by-folder using a checklist (`simplification.md`). For each folder, spawns three review agents in parallel:
+Continuously audits versioned semantic codebase slices instead of relying on a
+path checkbox. Every slice routes five read-only specialists:
 
-1. **Code Reuse** — finds existing utilities that could replace duplicated code
-2. **Code Quality** — flags redundant state, copy-paste, parameter sprawl, leaky abstractions
-3. **Efficiency** — catches N+1 patterns, missed concurrency, unnecessary work, memory leaks
+1. **Reuse and simplification** — deletes proven duplication and unnecessary indirection.
+2. **Maintainability and organization** — enforces the project's canonical ownership, folder, filename, casing, and colocation policy.
+3. **Efficiency and performance** — finds reachable repeated, unbounded, or avoidably serial work.
+4. **Correctness and reliability** — proves and repairs violated behavior and lifecycle invariants.
+5. **Security hardening** — validates reachable authorization, tenant, input, trust-boundary, and data-exposure defects.
 
-The orchestrator reconciles the findings, edits, validates with the repository's declared toolchain, and runs a fresh verifier. The minimal controller then enforces protected paths, commits the returned working tree, pushes, opens the PR, and tears down the workspace.
+The editing orchestrator independently verifies every specialist finding,
+applies one bounded coherent change, runs focused and definitive validation,
+and uses a fresh verifier. The controller enforces protected paths, file and
+diff budgets, commits the returned tree, pushes a `code-maintain/*` branch, and
+opens the PR.
 
-Simplifier runs use the shared controller lifecycle under `automation/`. Projects may use a linked worktree with repository-owned setup and cleanup hooks or the shared dedicated-clone fallback. The configured source checkout is never switched or reset. Exac runs `scripts/setup-worktree.sh --convex-mode local` and `scripts/cleanup-worktree.sh`, giving each run its own `.convex/local` backend and deleting it afterward. Dirty interrupted `code-simplify/*` work is preserved for resume; unexpected workspaces are quarantined.
+Project context uses progressive disclosure. Every specialist receives Exac's
+core invariants and current audited guidance; only the organization specialist
+receives the canonical source constitution, while the other roles receive
+their own ownership, performance, correctness, or security context. The
+controller fails closed when required hashed provider skills, Convex AI files,
+or official documentation are stale or fail integrity checks.
 
-Ignored automation state is stored outside the clone and symlinked into it. Each enabled project uses:
+Semantic slice state lives under `code-maintainer/state/cycles/`. A no-change
+audit advances immediately. A changed slice advances only after its PR merges;
+a closed-unmerged PR retries the same semantic slice. Finishing the final slice
+increments the cycle and starts again automatically. Stable slice IDs survive
+folder and filename changes.
 
-- `code-simplifier/state/env/<project>.env.local` for private runtime configuration (mode `0600`)
-- `code-simplifier/state/checklists/<project>.md` when `simplification.md` is ignored rather than tracked
+Runs use isolated shared workspaces under `automation/`. Exac uses
+`scripts/setup-worktree.sh --convex-mode local` and
+`scripts/cleanup-worktree.sh`, giving every run a private local Convex backend.
+Dirty interrupted `code-maintain/*` work is preserved for resume; unexpected
+workspaces are quarantined.
 
-The same private environment file can be configured for the PR reviewer through its per-project `environment_file`. Clone-based controllers require `.env.local` to be ignored and refuse unmanaged or broadly readable environment files. Linked-worktree projects instead delegate environment provisioning to the repository hook.
-
-Only one scheduled simplifier PR may be active per project. A merged PR advances the checklist; a closed-unmerged PR restores its exact checklist marker before another slice begins.
-
-### codebase-organizer
-
-Executes one approved, behavior-preserving source-organization slice at a time from `organization.md`. Each checklist item binds a correlated Convex domain, frontend domain, route implementation, adapters, generated references, and tests. Internal source vocabulary is English; client-facing Spanish copy and routes remain unchanged.
-
-The organizer performs clean atomic refactors: it removes old paths and updates every repository-controlled caller without barrels, forwarding modules, aliases, compatibility shims, or legacy fallbacks. A reusable `codebase-organizer` skill defines canonical folder and filename patterns, while each project's persistent checklist defines its exact approved moves.
-
-Runs use an isolated controller-owned workspace, a global and per-project enable switch, and one active organizer PR per project. Projects may select the shared linked-worktree lifecycle and repository-owned setup and cleanup hooks. Exac uses its canonical `scripts/setup-worktree.sh --convex-mode local` and `scripts/cleanup-worktree.sh`, so every organizer run gets a private project-local Convex backend and state directory rather than inheriting or sharing a cloud deployment. The organizer agent owns focused checks, definitive validation, iteration, and a fresh verifier. The minimal controller owns protected-path checks, commit, push, PR creation, and terminal workspace cleanup. Organizer PRs can be reviewed explicitly with `/review`; they never launch another simplification pass automatically.
-
-`code-simplifier` and `codebase-organizer` share `state/maintenance.lock`, preventing overlapping scheduled maintenance even if both LaunchAgents are enabled.
+The maintainer's organization role supersedes the retired standalone organizer.
+The shared `state/maintenance.lock` remains the single schedule-overlap guard.
 
 ### pr-reviewer
 
@@ -68,7 +76,7 @@ Reviewer workspaces are disposable controller-owned clones. First-run and interr
 
 Projects provide validation commands and non-secret resource settings such as `NODE_OPTIONS` directly to the agent. Credential-like and critical shell variables are rejected. Agent and dependency-setup processes prefer the Node version declared by the repository's `.nvmrc` or `.node-version`, preventing the LaunchAgent's global PATH from silently selecting another runtime.
 
-The reviewer defaults to `repair`. `observe` remains available for a read-only dry run, while the local exac deployment uses `repair`: verified changes are pushed to the PR branch and manual merge remains in GitHub. Neither human pushes nor scheduled simplifier PR publication invokes the reviewer automatically; comment `/review` once the PR is ready.
+The reviewer defaults to `repair`. `observe` remains available for a read-only dry run, while the local exac deployment uses `repair`: verified changes are pushed to the PR branch and manual merge remains in GitHub. Neither human pushes nor scheduled maintainer PR publication invokes the reviewer automatically; comment `/review` once the PR is ready.
 
 A semantic blocker sends one deduplicated outbound Telegram notification with the decision needed. Delivery uses no webhook or inbound listener. Failed sends remain in a durable outbox and are retried by a notification-only schedule; notification failure never changes the PR review result.
 
@@ -78,69 +86,43 @@ A semantic blocker sends one deduplicated outbound Telegram notification with th
 
 The two commands are intentionally independent. `/simplify` runs only the simplifier and `/review` runs only the correctness/security reviewer. Each agent owns its validation and may iterate until it considers the work ready; the controller does not repeat that work. Neither command automatically launches the other. Before any push, the controller verifies that the remote PR branch still equals the original GitHub head; the lease makes that comparison atomic, so a concurrent human push aborts publication instead of being overwritten.
 
-#### How the checklist works
-
-Create a `simplification.md` in each target repo with a folder tree:
-
-```markdown
-# Simplification Checklist
-
-## src/
-- [ ] components/auth/
-- [ ] components/dashboard/
-- [ ] lib/
-- [ ] hooks/
-```
-
-Add `simplification.md` to `.gitignore`. Each run picks the next unchecked folder, does the work, and marks it `[x]`. Progress persists across runs without polluting git history.
-
 ## Setup
 
 1. Clone this repository.
 2. Copy the example files for the automations you want to enable:
 
    ```bash
-   cp .env.example code-simplifier/.env
-   cp code-simplifier/config.example.json code-simplifier/config.json
+   cp .env.example code-maintainer/.env
+   cp code-maintainer/config.example.json code-maintainer/config.json
    cp pr-reviewer/config.example.json pr-reviewer/config.json
    cp pr-reviewer/.env.example pr-reviewer/.env
-   cp codebase-organizer/config.example.json codebase-organizer/config.json
    ```
 
 3. Set private environment files to owner-only access:
 
    ```bash
    chmod 600 pr-reviewer/.env
-   chmod 600 code-simplifier/state/env/*.env.local
+   chmod 600 code-maintainer/state/env/*.env.local
    ```
 
    Do not manually invent a webhook secret. `configure_webhook.py` creates and persists one without printing it.
 
 4. Edit the local ignored configuration files with project paths, repositories, base branches, and validation commands.
-5. For `code-simplifier`:
+5. For `code-maintainer`:
 
-   - Put the project environment at `code-simplifier/state/env/<project>.env.local` and run `chmod 600` on it.
-   - If `simplification.md` is ignored, store its canonical copy at `code-simplifier/state/checklists/<project>.md` and symlink the project checkout's `simplification.md` to it.
-   - If `simplification.md` is tracked, keep using the tracked repository file.
+   - Put clone-workspace project environments at `code-maintainer/state/env/<project>.env.local` and run `chmod 600` on them.
+   - Add the project profile and semantic slice registry under `code-maintainer/skills/code-maintainer/references/projects/<project>/`.
+   - Configure the audited skill lock, AI-files root, official docs catalog, and docs cache produced by `pr-reviewer/refresh_context.py`.
    - Configure the reviewer project's `environment_file` to point at the same private environment file.
 
-6. Install the scheduled simplifier with launchd on macOS:
+6. Install the scheduled maintainer with launchd on macOS:
 
    ```bash
-   ./code-simplifier/install.sh
-   ./code-simplifier/install_launchd.py
+   ./code-maintainer/install.sh
+   ./code-maintainer/install_launchd.py
    ```
 
-   The old `simplify.sh` entrypoint is intentionally inert. Remove any legacy `code-simplifier/simplify.sh` crontab line after installing the LaunchAgent; it cannot start duplicate work while it remains.
-
-   Install the codebase organizer skill and scheduled LaunchAgent when using organization checklists:
-
-   ```bash
-   ./codebase-organizer/install.sh
-   ./codebase-organizer/install_launchd.py
-   ```
-
-   Keep only one of the simplifier or organizer globally enabled while performing broad structural work. Their shared maintenance lock still prevents accidental overlap.
+   The installer manages only `com.overnight-agents.code-maintainer`.
 
 7. Install the human-PR simplifier, reviewer skill, and promoted provider bundle globally:
 
@@ -156,7 +138,7 @@ Add `simplification.md` to `.gitignore`. Each run picks the next unchecked folde
    ./pr-reviewer/install_launchd.py
    ```
 
-   `install-cron.sh` remains available for notification retry and context refresh on systems using cron; it does not supervise the persistent HTTP receiver or start reviews.
+   This deployment uses launchd for notification retry and provider-context refresh.
 
 9. Expose only the loopback receiver through a dedicated public Tailscale Funnel:
 
@@ -187,22 +169,29 @@ The weekly refresh uses isolated temporary clones. It promotes audited provider 
 - [GitHub CLI](https://cli.github.com/) (`gh`)
 - [Codex CLI](https://developers.openai.com/codex/cli/) (`codex`)
 - [Tailscale](https://tailscale.com/) with Funnel enabled for inbound GitHub webhooks
-- macOS with launchd for the persistent webhook receiver; cron remains supported for notification retry and provider-context refresh
+- macOS with launchd for scheduled maintenance and the persistent webhook receiver
 
 ## Configuration
 
-### Scheduled agents
+### Scheduled maintainer
 
-Both scheduled maintenance agents use the same JSON configuration vocabulary:
+The maintainer configuration includes:
 
 - **`enabled`** — global and per-project boolean switches
-- **`schedule`** — daily minute/hour cron expression translated to launchd on macOS
+- **`schedule`** — daily minute/hour expression translated to launchd calendar intervals
 - **`provider`** and model settings — shared Codex or Claude invocation policy
-- **`projects`** — named repository, base branch, checklist, validation, and workspace policy objects
+- **`projects`** — named repository, base branch, validation, and workspace policy objects
+- **`context`** — audited skill lock, AI-files snapshots, and official-documentation refresh paths
+- **change budgets** — maximum changed files and diff bytes per autonomous PR
 
 Projects rotate round-robin. Disabled projects are skipped.
 
-Every project supplies a persistent checklist path, repository, base branch, and validation commands. Clone workspaces also require a private environment file. A linked-worktree project instead configures repository-relative `setup_command` and `cleanup_command` arrays. Exac selects canonical worktree setup with `--convex-mode local`; the Convex CLI stores that run's backend under the worktree's ignored `.convex/local` directory, and cleanup deletes it before removing the worktree. Cloud mode remains available for human worktrees and may provide a controller-only `management_token_file`; this file contains only the raw token, must have mode `0600`, and is exposed only to the cleanup hook.
+Every project supplies a versioned project profile and semantic slice registry,
+repository, base branch, and validation commands. Clone workspaces also require
+a private environment file. A linked-worktree project instead configures
+repository-relative `setup_command` and `cleanup_command` arrays. Exac selects
+canonical worktree setup with `--convex-mode local`; cleanup removes its
+private backend before removing the worktree.
 
 ```json
 "workspace": {
@@ -213,17 +202,10 @@ Every project supplies a persistent checklist path, repository, base branch, and
 }
 ```
 
-The organization checklist uses one top-level item per correlated vertical slice:
-
-```markdown
-- [ ] **sales** — Align the complete sales product domain
-  - Backend: `convex/receipts/` → `convex/sales/`
-  - Frontend: `src/components/receipts/` → `src/components/sales/`
-  - Preserve: `/ventas`, Spanish copy, receipt entity vocabulary, and wire contracts.
-  - Remove: old paths, aliases, barrels, forwarding files, and fallbacks.
-```
-
-The marker becomes complete only when the source refactor, agent-owned validation, and fresh verification are ready. An open organizer PR blocks later checklist items; a closed-unmerged organizer PR restores its item to unchecked.
+Semantic slice selectors are discovery anchors, not static authorization.
+Agents resolve the current owner by imports, routes, adapters, and tests. The
+cycle is keyed by the stable slice ID, so canonical renames do not stale
+controller progress.
 
 ### PR reviewer
 
@@ -253,9 +235,9 @@ Draft PRs remain ineligible even if someone comments `/review`. Cross-repository
 
 ### Agent-owned validation
 
-Every reviewer, PR simplifier, scheduled simplifier, and organizer agent owns one complete review, edit, validation, and verification lifecycle:
+Every reviewer, PR simplifier, and scheduled maintainer owns one complete review, edit, validation, and verification lifecycle:
 
-1. The controller binds an exact PR head or scheduled checklist slice and prepares its isolated workspace.
+1. The controller binds an exact PR head or semantic maintenance slice and prepares its isolated workspace.
 2. The agent receives the repository validation commands and safe environment settings.
 3. The agent runs focused or full validation, diagnoses failures, fixes relevant defects, and iterates as often as useful in the same lifecycle.
 4. The agent distinguishes failures caused by its edits from unrelated, flaky, environmental, or already-green exact-head CI failures.
@@ -270,7 +252,7 @@ If the failure is external, transient, ambiguous, or unsafe to repair, the revie
 - Uses controller-owned clones or linked worktrees without switching the configured source checkout
 - Lets repository-owned lifecycle hooks provision isolated external services for linked worktrees
 - Keeps controller management tokens out of agent-visible worktrees and removes terminally clean linked worktrees
-- Persists ignored checklists outside disposable automation clones
+- Persists semantic cycle and pending-PR state outside disposable workspaces
 - Requires private project environment files and ignored workspace symlinks
 - Gives the agent the repository's validation commands and declared runtime
 - Keeps the last 30 log files, prunes older ones
@@ -284,13 +266,10 @@ If the failure is external, transient, ambiguous, or unsafe to repair, the revie
 ## Manual run
 
 ```bash
-./code-simplifier/controller.py --project exac --apply
+./code-maintainer/controller.py --project exac --apply
 
-# Inspect the next organization item without editing.
-./codebase-organizer/controller.py --project exac
-
-# Execute one organization item and publish its validated PR.
-./codebase-organizer/controller.py --project exac --apply
+# Inspect the next semantic slice without editing.
+./code-maintainer/controller.py --project exac
 
 # Review one exact PR with verified repairs enabled.
 ./pr-reviewer/controller.py \
@@ -346,11 +325,11 @@ tailscale funnel --https 8443 off
 
 ## Logs and state
 
-- `code-simplifier/logs/` — simplifier run history
-- `codebase-organizer/logs/` — organizer run history
-- `codebase-organizer/state/checklists/` — persistent project organization checklists
-- `codebase-organizer/state/workspaces/` — isolated organizer clones or linked worktrees
-- `codebase-organizer/state/pending/` — active organizer PR/item state
+- `code-maintainer/logs/` — maintenance run history
+- `code-maintainer/state/cycles/` — perpetual semantic cycle positions
+- `code-maintainer/state/pending/` — active maintenance PR and slice state
+- `code-maintainer/state/context/` — audited skills, AI-files, and official-doc evidence
+- `code-maintainer/state/workspaces/` — isolated maintainer clones or linked worktrees
 - `pr-reviewer/logs/webhook.log` — receiver health and HTTP status lines; request bodies and signatures are never logged
 - `pr-reviewer/logs/webhook-worker.log` — queued review controller output
 - `pr-reviewer/logs/reconcile.log` — outbound-notification retry output

@@ -109,10 +109,8 @@ def parse_maintenance_report(
         raise ReportFailure("selected roles must be unique and non-empty")
 
     matches = list(_REPORT_PATTERN.finditer(output))
-    if len(matches) != 1:
-        raise ReportFailure(
-            "maintenance agent must emit exactly one MAINTENANCE_REPORT_JSON field"
-        )
+    if not matches:
+        raise ReportFailure("maintenance agent must emit a MAINTENANCE_REPORT_JSON field")
     try:
         raw = json.loads(matches[0].group(1))
     except json.JSONDecodeError as error:
@@ -121,6 +119,17 @@ def parse_maintenance_report(
         ) from error
     if not isinstance(raw, dict):
         raise ReportFailure("MAINTENANCE_REPORT_JSON must be an object")
+    for match in matches[1:]:
+        try:
+            duplicate = json.loads(match.group(1))
+        except json.JSONDecodeError as error:
+            raise ReportFailure(
+                f"MAINTENANCE_REPORT_JSON is not valid JSON: {error.msg}"
+            ) from error
+        if duplicate != raw:
+            raise ReportFailure(
+                "maintenance agent emitted conflicting MAINTENANCE_REPORT_JSON fields"
+            )
 
     outcomes_by_role: dict[str, RoleOutcome] = {}
     raw_outcomes = _list(raw.get("role_outcomes"), "role_outcomes")

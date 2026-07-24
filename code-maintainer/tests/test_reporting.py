@@ -93,11 +93,23 @@ class MaintenanceReportingTests(unittest.TestCase):
         ):
             parse_maintenance_report(report_output(changes=[]), ROLES)
 
-    def test_rejects_multiple_structured_report_fields(self) -> None:
+    def test_accepts_identical_duplicate_structured_report_fields(self) -> None:
         output = report_output()
 
-        with self.assertRaisesRegex(ReportFailure, "exactly one"):
-            parse_maintenance_report(f"{output}\n{output}", ROLES)
+        report = parse_maintenance_report(f"{output}\n{output}", ROLES)
+
+        self.assertEqual(
+            report.summary,
+            "Simplified the calendar slice without changing contracts.",
+        )
+
+    def test_rejects_conflicting_structured_report_fields(self) -> None:
+        output = report_output()
+
+        with self.assertRaisesRegex(ReportFailure, "conflicting"):
+            parse_maintenance_report(
+                f"{output}\n{report_output(summary='Different report.')}", ROLES
+            )
 
 
 if __name__ == "__main__":

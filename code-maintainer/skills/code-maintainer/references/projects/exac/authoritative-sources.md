@@ -27,6 +27,8 @@ in scope. Read public API/OpenAPI documentation tests when a programmatic
 contract is in scope.
 
 Run all `pnpm`, Convex, and React Doctor commands outside the sandbox as
-required by repository instructions. The definitive Exac gate is
-`pnpm run validate`: zero errors, zero warnings, React Doctor 100, all tests
-green, and `Convex functions ready`.
+required by repository instructions. Run focused tests for the changed
+behavior, then use `pnpm run validate:worktree` as the definitive isolated
+worktree gate. It validates changed-file lint and formatting, full-project
+types, affected programmatic contracts, changed-scope React Doctor, and local
+Convex readiness without repeating the entire test suite.

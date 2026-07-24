@@ -10,10 +10,10 @@ Use one English internal domain across correlated layers while preserving an
 intentional Spanish client route:
 
 ```text
-src/app/(dashboard)/cuentas-por-pagar/   # thin route
-src/components/payables/                 # frontend owner
-convex/payables/                         # backend owner
-tests/payables/                          # behavioral mirror
+src/app/(dashboard)/<spanish-route>/     # framework route
+src/components/<domain>/                 # frontend owner
+convex/<domain>/                         # backend owner
+tests/<domain>/                          # behavioral mirror
 ```
 
 Frontend multiword domain directories use English `kebab-case`, such as
@@ -22,25 +22,57 @@ Frontend multiword domain directories use English `kebab-case`, such as
 because paths form generated API properties. Intentional Spanish route segments
 remain Spanish.
 
+Routes are framework entrypoints, not compatibility layers. A route may import
+its canonical page owner, but do not create or retain a legacy route, proxy
+route, alternate route segment, or thin forwarding module to preserve an old
+internal location. If changing a public URL or external API namespace is
+required, defer the move rather than adding a compatibility shim.
+
 ## Frontend domains
 
-`src/components/payables/` is the compact large-domain reference:
+The following are normative templates, not source-tree anchors. Apply them
+even when no existing domain currently matches them. A domain may be rooted
+directly under `src/components/`, or a category may group several independent
+domains:
 
 ```text
-payables/
-├── PayablesPageView.tsx
-├── PayablePaymentAction.tsx
+src/components/<domain>/
+├── DomainPageView.tsx
 ├── comboboxes/
+│   └── DomainAccountCombobox.tsx
 ├── details/
+│   └── DomainDetails.tsx
 ├── dialogs/
+│   └── RemoveDomainDialog.tsx
 ├── forms/
+│   └── DomainForm.tsx
 ├── sheets/
+│   └── RecordDomainPaymentSheet.tsx
 ├── tables/
+│   └── DomainsTable.tsx
 └── widgets/
+    └── DomainSummary.tsx
 ```
 
-`payables` and `receivables` are symmetry anchors for shared accounting roles.
-The domain root is an interface. Keep only:
+```text
+src/components/<category>/
+├── <first-domain>/                 # complete domain template above
+└── <second-domain>/                # complete domain template above
+```
+
+A category only groups multiple independent domains. A cohesive workflow within
+one domain is a semantic subdomain, not a category:
+
+```text
+src/components/<domain>/<subdomain>/
+├── dialogs/
+├── forms/
+├── hooks/
+├── lib/
+└── WorkflowView.tsx
+```
+
+The domain root is an interface, not a component catch-all. Keep only:
 
 - the primary `<Domain>PageView.tsx`;
 - a true cross-role/domain orchestrator;
@@ -50,32 +82,71 @@ Place role-specific components in the established plural directory. Place a
 cohesive feature with multiple roles in a semantic subdomain. Do not accumulate
 root forms, tables, dialogs, hooks, types, constants, fixtures, or pure helpers.
 Three or more root files sharing a declared role are strong evidence of a
-missing group, not an independent rule.
+missing group, not an independent rule. Every root module must satisfy one of
+the three root allowances above; otherwise move it to its role folder or
+semantic subdomain. Do not leave orphaned domain modules at the root.
 
 Do not create empty folders or decorative one-file folders. A one-file
-semantic subdomain is valid only for a real ownership boundary. Prefer the
-actual role or semantic owner over generic `helpers/`, `utils/`, or `misc/`.
+semantic subdomain is valid only for a real ownership boundary. `lib/` is for
+domain-private, non-UI modules shared across role folders. Keep a helper used
+by one role with that role, and name folders for their actual responsibility:
+`sections/`, `hooks/`, `validation/`, or `payloads/`, for example. Do not use
+generic `helpers/`, `utils/`, or `misc/`.
 
 ## Convex domains
 
-A small domain may remain flat when every root module is a distinct file-routed
-entry or cohesive responsibility. A large domain follows the
-`convex/sat/declarations/` pattern:
+Every Convex domain is organized into semantic subfolders. A backend domain
+may be either `convex/<domain>/` or, when it owns a cohesive workflow,
+`convex/<domain>/<subdomain>/`. The final ownership directory—`<domain>` in
+the first form or `<subdomain>` in the second—is the domain root for this
+policy.
+
+Flat domains are not permitted, regardless of size: do not place application
+modules directly in the final ownership directory. A single-function domain still
+uses the role folder for that function.
+
+The following is the normative Convex template, not a source-tree anchor.
+Apply it even when no existing domain currently matches it, omitting only role
+folders the domain does not need:
 
 ```text
-declarations/
+convex/<domain>/<subdomain>/        # or convex/<domain>/
 ├── actions/
+│   ├── retrieval.ts                # exports download and full actions
+│   └── polling.ts                  # exports process action
 ├── mutations/
+│   └── declarations.ts             # exports save mutation
 ├── queries/
-├── lib/
-├── contract.ts
-├── validators.ts
-└── tableValidators.ts
+│   └── dashboard.ts                # exports list and summary queries
+├── contracts/
+│   └── declaration.ts              # argument/result contract types
+├── validators/
+│   └── declaration.ts              # reusable and table-document validators
+└── lib/
+    └── parseDeclaration.ts         # domain-private pure/helper logic
 ```
 
-Use role folders once the role has multiple cohesive modules. Use `contracts/`
-for multiple contracts and semantic subdomains for independently owned
-workflows. `lib/` is bounded domain internals, never a miscellaneous bucket.
+Public Convex functions belong only in `actions/`, `mutations/`, or
+`queries/`. Within each role folder, group related public functions in a named
+workflow module rather than creating one small file per operation. For example,
+`actions/retrieval.ts` exports `download` and `full`, producing
+`api.<domain>.<subdomain>.actions.retrieval.download` and
+`api.<domain>.<subdomain>.actions.retrieval.full`.
+
+Keep generated API paths semantic and shallow: domain, optional subdomain, role,
+workflow, operation. Do not add a folder level that does not name a durable
+public workflow. Expand a workflow module into a same-named directory only
+when it needs multiple independently routed modules or tightly owned private
+implementation files; keep that directory's name in the API path. Shared
+contracts belong in `contracts/`; shared validators belong in `validators/`.
+Use a named semantic subdomain beneath the domain root for an independently
+owned workflow, then apply this same layout within it. `lib/` is bounded domain
+internals, never a miscellaneous bucket.
+
+The only files allowed directly in the final ownership directory are
+framework-required entrypoints or configuration files whose required location
+cannot be nested. Do not create a root module for convenience, and do not
+retain one as a barrel, alias, or forwarding file.
 
 Convex file paths are contract-sensitive. Inventory `api.*`, `internal.*`,
 HTTP, MCP, programmatic, tests, schedules, and generated references before a

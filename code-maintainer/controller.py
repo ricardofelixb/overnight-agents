@@ -39,6 +39,12 @@ from profiles import (
     ProjectProfile,
     load_project_profile,
 )
+from reporting import (
+    MAINTENANCE_REPORT_PROMPT,
+    ReportFailure,
+    maintenance_report_sections,
+    parse_maintenance_report,
+)
 
 
 SKILL_ROOT = SCRIPT_DIR / "skills" / "code-maintainer"
@@ -234,6 +240,8 @@ cycle state, or modify trusted agent policy. The controller owns publication
 and advances this semantic slice only after a no-change audit or merged PR.
 {resume}
 
+{MAINTENANCE_REPORT_PROMPT}
+
 {pull_requests.MANUAL_UI_CHECKS_PROMPT}
 """
 
@@ -339,6 +347,12 @@ def publish(
     agent_output: str,
     stream: TextIO,
 ) -> str:
+    try:
+        report = parse_maintenance_report(agent_output, item.roles)
+    except ReportFailure as error:
+        raise MaintainerFailure(
+            f"invalid maintenance publication report: {error}"
+        ) from error
     runtime.git(workspace, "diff", "--check", stream=stream)
     runtime.git(workspace, "add", "-A", stream=stream)
     staged = runtime.git(
@@ -388,13 +402,9 @@ def publish(
             (
                 f"## Maintenance slice\n\nCycle {position.cycle}, semantic slice "
                 f"`{item.identifier}`: {item.title}.\n\n"
-                "Reviewed through specialized reuse, organization, efficiency, "
-                "correctness, and security lenses routed by the project profile.\n\n"
-                "## Validation\n\n"
+                f"{maintenance_report_sections(report)}\n\n"
+                "## Definitive validation command\n\n"
                 f"```text\n{validation}\n```\n\n"
-                "The maintenance agent owned focused checks, definitive validation, "
-                "and an independent final verifier. The controller enforced fresh "
-                "context evidence, change budgets, publication safety, and cycle state.\n\n"
                 f"{ui_section}"
             ),
         ],

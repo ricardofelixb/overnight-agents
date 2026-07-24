@@ -19,7 +19,10 @@ The editing orchestrator independently verifies every specialist finding,
 applies one bounded coherent change, runs focused and definitive validation,
 and uses a fresh verifier. The controller enforces protected paths, file and
 diff budgets, commits the returned tree, pushes a `code-maintain/*` branch, and
-opens the PR.
+opens the PR. Each changed run must return a structured publication report;
+the PR records every specialist outcome, adopted changes, deferred and rejected
+findings, validation results, the independent verifier conclusion, and manual
+UI checks.
 
 Project context uses progressive disclosure. Every specialist receives Exac's
 core invariants and current audited guidance; only the organization specialist

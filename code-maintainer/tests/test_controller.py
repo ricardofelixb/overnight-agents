@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import os
 import subprocess
@@ -135,6 +136,31 @@ class MaintainerControllerTests(unittest.TestCase):
             ],
         )
 
+    def test_publication_requires_structured_report_before_git_mutation(self) -> None:
+        item = self.profile(Path("/tmp/profile")).slices[0]
+
+        with mock.patch.object(MODULE.runtime, "git") as mocked_git:
+            with self.assertRaisesRegex(
+                MODULE.MaintainerFailure,
+                "exactly one MAINTENANCE_REPORT_JSON",
+            ):
+                MODULE.publish(
+                    Path("/tmp/workspace"),
+                    {},
+                    {
+                        "repository": "owner/example",
+                        "base_branch": "main",
+                        "validation_commands": [["true"]],
+                    },
+                    item,
+                    MODULE.CyclePosition(cycle=1, index=0),
+                    "code-maintain/test",
+                    "unstructured report",
+                    io.StringIO(),
+                )
+
+        mocked_git.assert_not_called()
+
     def test_unique_branch_avoids_local_and_remote_collisions(self) -> None:
         workspace = Path("/tmp/workspace")
         occupied = {
@@ -216,12 +242,52 @@ class MaintainerControllerTests(unittest.TestCase):
                 **_kwargs: object,
             ) -> subprocess.CompletedProcess[str]:
                 self.assertIn("MANUAL_UI_CHECKS_JSON", prompt)
+                self.assertIn("MAINTENANCE_REPORT_JSON", prompt)
                 self.assertIn('"source"', prompt)
                 (workspace / "source.ts").write_text("export const value = (1);\n")
+                report = {
+                    "summary": "Simplified source ownership without changing behavior.",
+                    "role_outcomes": [
+                        {
+                            "role": role,
+                            "status": (
+                                "changed"
+                                if role == "reuse-simplification"
+                                else "no-change"
+                            ),
+                            "summary": f"Reviewed {role} and reconciled its findings.",
+                        }
+                        for role in profile.slices[0].roles
+                    ],
+                    "changes": [
+                        {
+                            "role": "reuse-simplification",
+                            "summary": "Removed unnecessary source indirection.",
+                        }
+                    ],
+                    "deferred": [
+                        {
+                            "role": "maintainability-organization",
+                            "summary": "Deferred a rename without a canonical target.",
+                        }
+                    ],
+                    "rejected": [
+                        {
+                            "role": "efficiency-performance",
+                            "summary": "Rejected an optimization without measurable work.",
+                        }
+                    ],
+                    "validation": ["The definitive validation command passed."],
+                    "verifier": "PASS — the final diff is bounded.",
+                }
                 return subprocess.CompletedProcess(
                     [],
                     0,
-                    'validated\nMANUAL_UI_CHECKS_JSON: ["Open settings and confirm the dialog appears."]',
+                    (
+                        "validated\n"
+                        f"MAINTENANCE_REPORT_JSON: {json.dumps(report)}\n"
+                        'MANUAL_UI_CHECKS_JSON: ["Open settings and confirm the dialog appears."]'
+                    ),
                     "",
                 )
 
@@ -273,6 +339,22 @@ class MaintainerControllerTests(unittest.TestCase):
                 message, "example: created https://github.com/owner/example/pull/17"
             )
             self.assertIn("semantic slice `source`", created_body["value"])
+            self.assertIn("## Specialist outcomes", created_body["value"])
+            self.assertIn(
+                "**Maintainability organization — No change:**",
+                created_body["value"],
+            )
+            self.assertIn("## Changes made", created_body["value"])
+            self.assertIn(
+                "Removed unnecessary source indirection",
+                created_body["value"],
+            )
+            self.assertIn("## Deferred findings", created_body["value"])
+            self.assertIn("without a canonical target", created_body["value"])
+            self.assertIn("## Rejected findings", created_body["value"])
+            self.assertIn("without measurable work", created_body["value"])
+            self.assertIn("## Reported validation", created_body["value"])
+            self.assertIn("**Independent verifier:** PASS", created_body["value"])
             self.assertIn(
                 "- [ ] Open settings and confirm the dialog appears.",
                 created_body["value"],

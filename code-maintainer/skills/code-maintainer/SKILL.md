@@ -105,6 +105,8 @@ Never commit, push, create a PR, edit controller state, change Git
 configuration, or expose credentials. Never finish with validation or a
 verifier pending.
 
-Report adopted and rejected findings by role, edits, test and validation
-results, verifier conclusion, deferred boundaries, and manual UI checks in the
-controller-required format. Leave changes uncommitted for the controller.
+Report every selected role's outcome, adopted changes, rejected findings,
+deferred boundaries, test and validation results, verifier conclusion, and
+manual UI checks in the controller-required structured fields. These fields
+are the source of truth for the pull-request description, so keep them concise,
+specific, and evidence-backed. Leave changes uncommitted for the controller.

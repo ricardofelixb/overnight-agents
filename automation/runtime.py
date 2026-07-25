@@ -7,6 +7,7 @@ import os
 import re
 import stat
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TextIO
@@ -164,8 +165,46 @@ def agent_environment(workspace: Path, environment_file: Path | None = None) -> 
     return environment
 
 
+HOOKS_DIR = Path(__file__).resolve().parent / "hooks"
+
+
+def agent_settings(report_field: str | None) -> dict[str, Any]:
+    """Enforce the headless process rules the prompt can only ask for."""
+    hooks: dict[str, Any] = {
+        "PreToolUse": [
+            {
+                "matcher": "Bash",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": f"{sys.executable} {HOOKS_DIR / 'deny_detached_bash.py'}",
+                    }
+                ],
+            }
+        ]
+    }
+    if report_field:
+        hooks["Stop"] = [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": (
+                            f"{sys.executable} {HOOKS_DIR / 'require_report.py'} "
+                            f"{report_field}"
+                        ),
+                    }
+                ]
+            }
+        ]
+    return {"hooks": hooks}
+
+
 def agent_command(
-    config: dict[str, Any], workspace: Path, prompt: str
+    config: dict[str, Any],
+    workspace: Path,
+    prompt: str,
+    report_field: str | None = None,
 ) -> list[str]:
     provider = config.get("provider", "codex")
     if provider == "codex":
@@ -189,6 +228,8 @@ def agent_command(
         return [
             "claude",
             "--dangerously-skip-permissions",
+            "--settings",
+            json.dumps(agent_settings(report_field)),
             "--model",
             str(config.get("claude_model", "claude-opus-4-8")),
             "--effort",
@@ -206,9 +247,15 @@ def run_agent(
     stream: TextIO,
     *,
     environment_file: Path | None = None,
+    report_field: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return run(
-        agent_command(config, workspace, f"{prompt.rstrip()}\n{AGENT_PROCESS_GUIDANCE}"),
+        agent_command(
+            config,
+            workspace,
+            f"{prompt.rstrip()}\n{AGENT_PROCESS_GUIDANCE}",
+            report_field,
+        ),
         cwd=workspace,
         env=agent_environment(workspace, environment_file),
         check=False,

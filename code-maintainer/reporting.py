@@ -21,8 +21,9 @@ claims. This structured report is the source of truth for the pull-request
 description.
 """.strip()
 
+REPORT_FIELD = "MAINTENANCE_REPORT_JSON"
 _REPORT_PATTERN = re.compile(
-    r"^MAINTENANCE_REPORT_JSON:\s*(\{.*\})\s*$", re.MULTILINE
+    rf"^{REPORT_FIELD}:\s*(\{{.*\}})\s*$", re.MULTILINE
 )
 _ALLOWED_STATUSES = {"changed", "no-change", "deferred", "mixed"}
 _MAX_SUMMARY_LENGTH = 600

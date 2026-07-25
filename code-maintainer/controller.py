@@ -42,6 +42,7 @@ from profiles import (
 )
 from reporting import (
     MAINTENANCE_REPORT_PROMPT,
+    REPORT_FIELD,
     ReportFailure,
     maintenance_report_sections,
     parse_maintenance_report,
@@ -527,6 +528,7 @@ def execute_project(
             ),
             stream,
             environment_file=SCRIPT_DIR / ".env",
+            report_field=REPORT_FIELD,
         )
         if agent.returncode != 0:
             raise MaintainerFailure(

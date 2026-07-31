@@ -84,6 +84,87 @@ class MaintainerControllerTests(unittest.TestCase):
         self.assertIn("bounded concurrent batches", prompt)
         self.assertIn("fresh verifier", prompt)
 
+    def test_enabled_slice_filters_runtime_disabled_roles(self) -> None:
+        item = self.profile(Path("/tmp/profile")).slices[0]
+
+        selected = MODULE.enabled_slice(
+            {
+                "agents": {
+                    "maintainability-organization": False,
+                    "security-hardening": False,
+                }
+            },
+            item,
+        )
+
+        self.assertEqual(
+            selected.roles,
+            (
+                "reuse-simplification",
+                "efficiency-performance",
+                "correctness-reliability",
+            ),
+        )
+        self.assertEqual(selected.selectors, item.selectors)
+        self.assertEqual(selected.guidance_domains, item.guidance_domains)
+
+    def test_enabled_slice_rejects_a_slice_with_no_enabled_roles(self) -> None:
+        item = self.profile(Path("/tmp/profile")).slices[0]
+
+        with self.assertRaisesRegex(
+            MODULE.MaintainerFailure, "has no enabled specialist roles"
+        ):
+            MODULE.enabled_slice(
+                {"agents": {role: False for role in item.roles}}, item
+            )
+
+    def test_config_rejects_unknown_non_boolean_and_all_disabled_agents(self) -> None:
+        base = {
+            "version": 2,
+            "enabled": True,
+            "schedule": "0 1 * * *",
+            "context": {
+                "skills_lock": "skills.json",
+                "skill_release_root": "skills",
+                "ai_files_root": "ai-files",
+                "docs_catalog": "docs.json",
+                "docs_refresh_script": "refresh.py",
+                "docs_cache": "docs-cache",
+            },
+            "projects": [
+                {
+                    "name": "example",
+                    "enabled": True,
+                    "source_path": "/tmp/source",
+                    "repository": "owner/repository",
+                    "base_branch": "main",
+                    "environment_file": "/tmp/project.env",
+                    "validation_commands": [["true"]],
+                }
+            ],
+        }
+        invalid_agents = (
+            ({"unknown-role": True}, "unknown roles"),
+            ({"reuse-simplification": "yes"}, "must be a boolean"),
+            (
+                {
+                    role: False
+                    for role in self.profile(Path("/tmp/profile")).slices[0].roles
+                },
+                "enable at least one",
+            ),
+        )
+
+        for agents, message in invalid_agents:
+            with self.subTest(
+                agents=agents
+            ), tempfile.TemporaryDirectory() as temporary:
+                config = dict(base, agents=agents)
+                path = Path(temporary) / "config.json"
+                path.write_text(json.dumps(config))
+                with self.assertRaisesRegex(MODULE.MaintainerFailure, message):
+                    MODULE.load_config(path)
+
     def test_project_name_cannot_escape_profile_directory(self) -> None:
         config = {
             "version": 2,
@@ -142,7 +223,7 @@ class MaintainerControllerTests(unittest.TestCase):
         with mock.patch.object(MODULE.runtime, "git") as mocked_git:
             with self.assertRaisesRegex(
                 MODULE.MaintainerFailure,
-                "exactly one MAINTENANCE_REPORT_JSON",
+                "MAINTENANCE_REPORT_JSON",
             ):
                 MODULE.publish(
                     Path("/tmp/workspace"),

@@ -10,6 +10,7 @@ import os
 import re
 import subprocess
 import sys
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, TextIO
@@ -197,6 +198,20 @@ def current_slice(
     profile: ProjectProfile, position: CyclePosition
 ) -> MaintenanceSlice:
     return profile.slices[position.index]
+
+
+def enabled_slice(
+    config: dict[str, Any], item: MaintenanceSlice
+) -> MaintenanceSlice:
+    """Return the selected slice with runtime-disabled roles removed."""
+
+    agents = config.get("agents", {})
+    roles = tuple(role for role in item.roles if agents.get(role, True))
+    if not roles:
+        raise MaintainerFailure(
+            f"semantic slice {item.identifier} has no enabled specialist roles"
+        )
+    return replace(item, roles=roles)
 
 
 def agent_prompt(
@@ -449,7 +464,7 @@ def execute_project(
     if not resuming:
         validate_profile_selectors(profile, workspace)
     position = load_position(cycle_path(project["name"]), identifiers)
-    item = current_slice(profile, position)
+    item = enabled_slice(config, current_slice(profile, position))
     active = active_maintainer_pr(project, stream)
     if active:
         return finish_without_agent(

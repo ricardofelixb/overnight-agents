@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from profiles import ROLE_SET
+
 
 class ConfigurationFailure(ValueError):
     pass
@@ -40,6 +42,19 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ConfigurationFailure("schedule must be a non-empty string")
     if config.get("provider", "codex") not in {"codex", "claude"}:
         raise ConfigurationFailure("provider must be codex or claude")
+    agents = config.get("agents", {})
+    if not isinstance(agents, dict):
+        raise ConfigurationFailure("agents must be an object")
+    unknown_agents = set(agents) - ROLE_SET
+    if unknown_agents:
+        raise ConfigurationFailure(
+            "agents contains unknown roles: " + ", ".join(sorted(unknown_agents))
+        )
+    for role, enabled in agents.items():
+        if not isinstance(enabled, bool):
+            raise ConfigurationFailure(f"agents {role} must be a boolean")
+    if not any(agents.get(role, True) for role in ROLE_SET):
+        raise ConfigurationFailure("agents must enable at least one specialist role")
     _bounded_integer(config.get("max_changed_files", 80), 1, 500, "max_changed_files")
     _bounded_integer(
         config.get("max_diff_bytes", 750_000),

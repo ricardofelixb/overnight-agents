@@ -28,8 +28,10 @@ defect. Fewer lines are useful only when clarity and behavior improve.
    repository instructions, and relevant source evidence. Include the complete
    text; do not rely on role names or filesystem discovery.
 
-Run every listed role as a read-only specialist. Use bounded concurrent batches
-when provider concurrency cannot run all roles together. Never omit a role.
+Run every role listed in the controller-supplied slice as a read-only
+specialist. The controller has already removed runtime-disabled roles. Use
+bounded concurrent batches when provider concurrency cannot run all selected
+roles together. Never omit a selected role.
 
 ## Evidence gate
 

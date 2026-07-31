@@ -19,3 +19,8 @@ Use `./controller.py --project <name> --apply` for a manual run. Never place
 prompts or canonical project policy in ignored configuration. Add a project
 under `skills/code-maintainer/references/projects/<name>/` and validate its
 `profile.json` and `slices.json` before enabling it.
+
+The optional root-level `agents` object temporarily enables or disables known
+specialist roles with booleans. Omitted roles default to enabled. At least one
+specialist must remain enabled; project profiles and slice registries continue
+to define the complete canonical role set.

@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "project": "agents",
+  "shared_context": [
+    "core.md",
+    "authoritative-sources.md"
+  ],
+  "role_context": {
+    "reuse-simplification": [
+      "ownership.md"
+    ],
+    "maintainability-organization": [
+      "ownership.md",
+      "canonical-structure.md"
+    ],
+    "efficiency-performance": [
+      "ownership.md",
+      "performance.md"
+    ],
+    "correctness-reliability": [
+      "ownership.md",
+      "correctness-security.md"
+    ],
+    "security-hardening": [
+      "ownership.md",
+      "correctness-security.md"
+    ]
+  },
+  "slices": "slices.json"
+}

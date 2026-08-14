@@ -3,13 +3,40 @@
 from __future__ import annotations
 
 import re
+import sys
+from pathlib import Path
 from typing import Any
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from automation.launchd import calendar_intervals
 from profiles import ROLE_SET
 
 
 class ConfigurationFailure(ValueError):
     pass
+
+
+CONTEXT_PATH_FIELDS = (
+    "skills_lock",
+    "skill_release_root",
+    "ai_files_root",
+    "docs_catalog",
+    "docs_refresh_script",
+    "docs_cache",
+)
+CONTEXT_INTEGER_FIELDS = (
+    ("skill_max_age_days", (1, 31), 8),
+    ("ai_files_max_age_days", (1, 31), 8),
+    ("docs_max_age_hours", (1, 168), 24),
+    ("max_document_bytes", (1_000, 20_000_000), 5_000_000),
+)
+CONTEXT_KEYS = frozenset(
+    CONTEXT_PATH_FIELDS
+    + tuple(field for field, _bounds, _default in CONTEXT_INTEGER_FIELDS)
+)
 
 
 def _command(value: Any) -> bool:
@@ -33,13 +60,22 @@ def _bounded_integer(
         )
 
 
+def _schedule(value: Any, label: str) -> list[dict[str, int]]:
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigurationFailure(f"{label} must be a non-empty daily schedule")
+    try:
+        return calendar_intervals(value)
+    except ValueError as error:
+        raise ConfigurationFailure(f"{label} is invalid: {error}") from error
+
+
 def validate_config(config: dict[str, Any]) -> None:
-    if config.get("version") != 2:
-        raise ConfigurationFailure("config version must equal 2")
+    if config.get("version") != 3:
+        raise ConfigurationFailure("config version must equal 3")
     if not isinstance(config.get("enabled"), bool):
         raise ConfigurationFailure("enabled must be a boolean")
-    if not isinstance(config.get("schedule"), str) or not config["schedule"].strip():
-        raise ConfigurationFailure("schedule must be a non-empty string")
+    if "schedule" in config:
+        raise ConfigurationFailure("schedule belongs on each project, not the root config")
     if config.get("provider", "codex") not in {"codex", "claude"}:
         raise ConfigurationFailure("provider must be codex or claude")
     agents = config.get("agents", {})
@@ -63,31 +99,13 @@ def validate_config(config: dict[str, Any]) -> None:
         "max_diff_bytes",
     )
 
-    context = config.get("context")
-    if not isinstance(context, dict):
-        raise ConfigurationFailure("context must be an object")
-    for field in (
-        "skills_lock",
-        "skill_release_root",
-        "ai_files_root",
-        "docs_catalog",
-        "docs_refresh_script",
-        "docs_cache",
-    ):
-        if not _path(context.get(field)):
-            raise ConfigurationFailure(f"context requires {field}")
-    for field, bounds, default in (
-        ("skill_max_age_days", (1, 31), 8),
-        ("ai_files_max_age_days", (1, 31), 8),
-        ("docs_max_age_hours", (1, 168), 24),
-        ("max_document_bytes", (1_000, 20_000_000), 5_000_000),
-    ):
-        _bounded_integer(context.get(field, default), bounds[0], bounds[1], field)
+    _validate_context(config.get("context"), "context", complete=True)
 
     projects = config.get("projects")
     if not isinstance(projects, list) or not projects:
         raise ConfigurationFailure("projects must be a non-empty array")
     names: set[str] = set()
+    occupied: dict[tuple[int, int], str] = {}
     for project in projects:
         if not isinstance(project, dict):
             raise ConfigurationFailure("each project must be an object")
@@ -103,6 +121,16 @@ def validate_config(config: dict[str, Any]) -> None:
         names.add(name)
         if not isinstance(project.get("enabled"), bool):
             raise ConfigurationFailure(f"project {name} enabled must be a boolean")
+        intervals = _schedule(project.get("schedule"), f"project {name} schedule")
+        if project["enabled"]:
+            for interval in intervals:
+                key = (interval["Hour"], interval["Minute"])
+                owner = occupied.get(key)
+                if owner:
+                    raise ConfigurationFailure(
+                        f"project {name} schedule overlaps {owner}"
+                    )
+                occupied[key] = name
         for field in ("source_path", "repository", "base_branch"):
             if not _path(project.get(field)):
                 raise ConfigurationFailure(f"project {name} requires {field}")
@@ -113,6 +141,11 @@ def validate_config(config: dict[str, Any]) -> None:
             raise ConfigurationFailure(
                 f"project {name} validation_commands must be non-empty argv arrays"
             )
+        overlay = project.get("context")
+        if overlay is False:
+            pass
+        elif overlay is not None:
+            _validate_context(overlay, f"project {name} context", complete=False)
         workspace = project.get("workspace")
         if workspace is None:
             if not _path(project.get("environment_file")):
@@ -132,3 +165,36 @@ def validate_config(config: dict[str, Any]) -> None:
             raise ConfigurationFailure(
                 f"project {name} workspace management_token_file must be a path"
             )
+
+
+def _validate_context(context: Any, label: str, *, complete: bool) -> None:
+    if not isinstance(context, dict):
+        raise ConfigurationFailure(f"{label} must be an object")
+    unknown = set(context) - CONTEXT_KEYS
+    if unknown:
+        raise ConfigurationFailure(
+            f"{label} contains unknown fields: " + ", ".join(sorted(unknown))
+        )
+    for field in CONTEXT_PATH_FIELDS:
+        if complete or field in context:
+            if not _path(context.get(field)):
+                raise ConfigurationFailure(f"{label} requires {field}")
+    for field, bounds, default in CONTEXT_INTEGER_FIELDS:
+        if complete:
+            _bounded_integer(context.get(field, default), bounds[0], bounds[1], field)
+        elif field in context:
+            _bounded_integer(context[field], bounds[0], bounds[1], f"{label} {field}")
+
+
+def resolve_context(
+    config: dict[str, Any], project: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
+    """Return shared context defaults, a per-project overlay, or None to opt out."""
+
+    overlay = project.get("context") if isinstance(project, dict) else None
+    if overlay is False:
+        return None
+    context = dict(config.get("context") or {})
+    if isinstance(overlay, dict):
+        context.update(overlay)
+    return context

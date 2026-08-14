@@ -1,0 +1,256 @@
+{
+  "version": 1,
+  "defaults": {
+    "roles": [
+      "reuse-simplification",
+      "maintainability-organization",
+      "efficiency-performance",
+      "correctness-reliability",
+      "security-hardening"
+    ],
+    "guidance_domains": []
+  },
+  "slices": [
+    {
+      "id": "core-runtime",
+      "title": "Shared runtime, company config, and credentials",
+      "selectors": [
+        "core/runtime/",
+        "tests/core/runtime/"
+      ],
+      "search_terms": [
+        "company config",
+        "source gateway",
+        "runtime credentials"
+      ]
+    },
+    {
+      "id": "core-sdk",
+      "title": "SDK, tools, and provider adapters",
+      "selectors": [
+        "core/sdk/",
+        "tests/core/sdk/"
+      ],
+      "search_terms": [
+        "ToolDefinition",
+        "provider adapter",
+        "tool registry"
+      ]
+    },
+    {
+      "id": "core-cron",
+      "title": "Cron scheduling and report runtime",
+      "selectors": [
+        "core/cron/",
+        "tests/core/cron/",
+        "install-crons.sh"
+      ],
+      "search_terms": [
+        "cron",
+        "schedule",
+        "report runtime"
+      ]
+    },
+    {
+      "id": "core-cli",
+      "title": "Developer CLI and local Telegram",
+      "selectors": [
+        "core/cli/",
+        "tests/core/cli/",
+        "scripts/agents",
+        "scripts/install-agents-cli.sh"
+      ],
+      "search_terms": [
+        "agents CLI",
+        "dev telegram",
+        "local menu"
+      ]
+    },
+    {
+      "id": "core-codex",
+      "title": "Codex runtime and narrator",
+      "selectors": [
+        "core/codex/",
+        "tests/core/codex/"
+      ],
+      "search_terms": [
+        "codex runtime",
+        "cron narrator",
+        "app server"
+      ]
+    },
+    {
+      "id": "core-deploy",
+      "title": "Deploy webhooks and rollout",
+      "selectors": [
+        "core/deploy/",
+        "tests/core/deploy/",
+        "docs/deploy-webhooks.md",
+        "docs/manual-deploy.md"
+      ],
+      "search_terms": [
+        "deploy webhook",
+        "rollout",
+        "git pull"
+      ]
+    },
+    {
+      "id": "core-billing",
+      "title": "Billing engine and collectors",
+      "selectors": [
+        "core/billing/",
+        "tests/core/billing/",
+        "infra/billing_collector/",
+        "docs/usage-monitor.md"
+      ],
+      "search_terms": [
+        "billing",
+        "usage",
+        "provider cost"
+      ]
+    },
+    {
+      "id": "core-reporting",
+      "title": "Reporting delivery and search",
+      "selectors": [
+        "core/reporting/",
+        "tests/core/reporting/"
+      ],
+      "search_terms": [
+        "reporting",
+        "delivery",
+        "pagination"
+      ]
+    },
+    {
+      "id": "core-providers",
+      "title": "Provider management helpers",
+      "selectors": [
+        "core/providers/",
+        "tests/core/providers/"
+      ],
+      "search_terms": [
+        "xAI management",
+        "provider credentials"
+      ]
+    },
+    {
+      "id": "livekit-voice",
+      "title": "LiveKit voice workers and SIP",
+      "selectors": [
+        "core/livekit_voice/",
+        "tests/core/livekit_voice/",
+        "livekit/",
+        "docs/livekit.md"
+      ],
+      "search_terms": [
+        "LiveKit",
+        "voice worker",
+        "SIP"
+      ]
+    },
+    {
+      "id": "observability",
+      "title": "Alerts and observability",
+      "selectors": [
+        "core/observability/",
+        "docs/runtime-behavior.md"
+      ],
+      "search_terms": [
+        "alerts",
+        "observability",
+        "log retention"
+      ]
+    },
+    {
+      "id": "company-country-club",
+      "title": "Country Club company agents",
+      "selectors": [
+        "companies/country_club/"
+      ],
+      "search_terms": [
+        "country club",
+        "collection",
+        "accountant"
+      ]
+    },
+    {
+      "id": "company-crino",
+      "title": "Crino company agents",
+      "selectors": [
+        "companies/crino/"
+      ],
+      "search_terms": [
+        "crino",
+        "gerente",
+        "diesel"
+      ]
+    },
+    {
+      "id": "company-exac",
+      "title": "Exac company collection agent",
+      "selectors": [
+        "companies/exac/"
+      ],
+      "search_terms": [
+        "exac collection",
+        "voice outbound",
+        "dialer"
+      ]
+    },
+    {
+      "id": "plugins",
+      "title": "Company plugins",
+      "selectors": [
+        "plugins/"
+      ],
+      "search_terms": [
+        "plugins",
+        "company plugin"
+      ]
+    },
+    {
+      "id": "infra-runtime",
+      "title": "Production VM and systemd runtime",
+      "selectors": [
+        "infra/agents-runtime/",
+        "docs/production-vm-setup.md"
+      ],
+      "search_terms": [
+        "agents-runtime",
+        "systemd",
+        "Caddy"
+      ]
+    },
+    {
+      "id": "scripts-server",
+      "title": "Repository scripts and HTTP entrypoints",
+      "selectors": [
+        "scripts/",
+        "server.py",
+        "wsgi.py",
+        "docs/local-development.md"
+      ],
+      "search_terms": [
+        "setup.sh",
+        "lint",
+        "wsgi"
+      ]
+    },
+    {
+      "id": "docs-conventions",
+      "title": "Repository conventions and routing docs",
+      "selectors": [
+        "AGENTS.md",
+        "docs/",
+        "docs/dashboard-integrations.md",
+        "docs/telegram_richmessage.md"
+      ],
+      "search_terms": [
+        "AGENTS.md",
+        "core vs company",
+        "dashboard integrations"
+      ]
+    }
+  ]
+}

@@ -39,11 +39,13 @@ folder and filename changes. Before starting a fresh slice, the controller
 fails closed if any registered selector no longer resolves in the current
 workspace and reports every stale path that must be updated.
 
-Runs use isolated shared workspaces under `automation/`. Exac uses
+Runs use isolated shared workspaces under `automation/`. Each enabled project
+has its own daily launchd job and `schedule`. Exac uses
 `scripts/setup-worktree.sh --convex-mode local` and
 `scripts/cleanup-worktree.sh`, giving every run a private local Convex backend.
-Dirty interrupted `code-maintain/*` work is preserved for resume; unexpected
-workspaces are quarantined.
+Agents uses a simpler `scripts/setup-worktree.sh` that only creates an isolated
+`.venv`. Dirty interrupted `code-maintain/*` work is preserved for resume;
+unexpected workspaces are quarantined.
 
 The maintainer's organization role supersedes the retired standalone organizer.
 The shared `state/maintenance.lock` remains the single schedule-overlap guard.
@@ -127,7 +129,10 @@ The two commands are intentionally independent. `/simplify` runs only the simpli
    ./code-maintainer/install_launchd.py
    ```
 
-   The installer manages only `com.overnight-agents.code-maintainer`.
+   The installer manages one LaunchAgent per enabled project, currently
+   `com.overnight-agents.code-maintainer.exac` and
+   `com.overnight-agents.code-maintainer.agents`, and removes the legacy
+   combined `com.overnight-agents.code-maintainer` label.
 
 7. Install the human-PR simplifier, reviewer skill, and promoted provider bundle globally:
 
@@ -183,20 +188,31 @@ The weekly refresh uses isolated temporary clones. It promotes audited provider 
 The maintainer configuration includes:
 
 - **`enabled`** — global and per-project boolean switches
-- **`schedule`** — daily minute/hour expression translated to launchd calendar intervals
 - **`provider`** and model settings — shared Codex or Claude invocation policy
-- **`projects`** — named repository, base branch, validation, and workspace policy objects
-- **`context`** — audited skill lock, AI-files snapshots, and official-documentation refresh paths
+- **`projects`** — named repository, schedule, validation, and workspace policy objects
+- **`context`** — shared audited Convex/React/WorkOS skill lock, AI-files root, and docs cache. TypeScript/Convex projects inherit it. A project may overlay individual keys, or set `"context": false` to skip that pipeline entirely.
 - **change budgets** — maximum changed files and diff bytes per autonomous PR
 
-Projects rotate round-robin. Disabled projects are skipped.
+Each enabled project has its own daily launchd job. Disabled projects are skipped.
 
 Every project supplies a versioned project profile and semantic slice registry,
-repository, base branch, and validation commands. Clone workspaces also require
+repository, base branch, schedule, and validation commands. Clone workspaces also require
 a private environment file. A linked-worktree project instead configures
 repository-relative `setup_command` and `cleanup_command` arrays. Exac selects
 canonical worktree setup with `--convex-mode local`; cleanup removes its
-private backend before removing the worktree.
+private backend before removing the worktree. Agents uses a simpler venv-only
+setup hook and sets `"context": false` because it is a Python runtime, not
+Next.js or Convex.
+
+Root context is one audited store for provider skills and official docs. Convex
+AI-files snapshots already live under `ai_files_root/<project>/`, and evidence
+is written under `state/context/<project>/`. Slice `guidance_domains` choose
+which shared domains a run loads. Overlay only the keys a project actually
+needs, or opt out:
+
+```json
+"context": false
+```
 
 ```json
 "workspace": {
@@ -272,9 +288,11 @@ If the failure is external, transient, ambiguous, or unsafe to repair, the revie
 
 ```bash
 ./code-maintainer/controller.py --project exac --apply
+./code-maintainer/controller.py --project agents --apply
 
 # Inspect the next semantic slice without editing.
 ./code-maintainer/controller.py --project exac
+./code-maintainer/controller.py --project agents
 
 # Review one exact PR with verified repairs enabled.
 ./pr-reviewer/controller.py \

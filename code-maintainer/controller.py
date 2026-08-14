@@ -33,7 +33,7 @@ from cycles import (
     checkpoint,
     load_position,
 )
-from policy import ConfigurationFailure, validate_config
+from policy import ConfigurationFailure, resolve_context, validate_config
 from profiles import (
     MaintenanceSlice,
     ProfileFailure,
@@ -519,8 +519,10 @@ def execute_project(
             )
             hook_active = True
 
+        evidence_config = dict(config)
+        evidence_config["context"] = resolve_context(config, project)
         evidence = prepare_context_evidence(
-            config,
+            evidence_config,
             project["name"],
             item.guidance_domains,
             workspace,

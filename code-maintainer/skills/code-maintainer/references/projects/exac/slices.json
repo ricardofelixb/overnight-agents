@@ -59,6 +59,7 @@
         "convex/api/v1/quotes.ts",
         "src/components/operations/quotes/",
         "src/app/(dashboard)/cotizaciones/",
+        "src/app/cotizacion/",
         "src/components/shared/forms/items/",
         "src/lib/invoicing/",
         "tests/quotes/"
@@ -102,7 +103,7 @@
         "convex/api/v1/receipts.ts",
         "convex/mcp/tools/receipts.ts",
         "src/components/operations/sales/",
-        "src/app/(dashboard)/ventas/",
+        "src/app/(dashboard)/caja/",
         "tests/sales/"
       ],
       "search_terms": [
@@ -158,10 +159,13 @@
       "selectors": [
         "convex/operations/sales/",
         "convex/members/",
+        "convex/cashierRole.ts",
         "src/components/operations/sales/pos/",
+        "src/components/operations/cash/",
         "src/components/scanner/",
         "src/lib/scanner/",
         "src/app/(dashboard)/caja/",
+        "src/components/settings/sections/pos/",
         "tests/pos/",
         "tests/sales/",
         "tests/members/"
@@ -179,14 +183,35 @@
         "convex/balances/receivables/",
         "convex/api/v1/accounts.ts",
         "src/components/balances/receivables/",
-        "src/components/catalog/customers/credit/",
+        "src/components/balances/account-ledger/",
+        "src/components/balances/forms/",
+        "src/components/balances/BalanceScopeTabs.tsx",
+        "src/components/balances/balance-scope.ts",
+        "src/components/catalog/customers/shared/",
         "src/app/(dashboard)/cuentas-por-cobrar/",
-        "tests/receivables/"
+        "tests/receivables/",
+        "tests/balances/",
+        "tests/accounts/"
       ],
       "search_terms": [
         "receivables",
         "customer credit",
         "credit accounts"
+      ]
+    },
+    {
+      "id": "collection-agents",
+      "title": "Collection agents and agent runtime",
+      "selectors": [
+        "convex/agents/",
+        "src/components/agents/",
+        "src/app/(dashboard)/agentes/",
+        "tests/agents/"
+      ],
+      "search_terms": [
+        "collection agent",
+        "cobranza",
+        "agent runtime"
       ]
     },
     {
@@ -196,8 +221,15 @@
         "convex/balances/payables/",
         "convex/api/v1/accounts.ts",
         "src/components/balances/payables/",
+        "src/components/balances/account-ledger/",
+        "src/components/balances/forms/",
+        "src/components/balances/BalanceScopeTabs.tsx",
+        "src/components/balances/balance-scope.ts",
         "src/app/(dashboard)/cuentas-por-pagar/",
-        "tests/expenses/"
+        "tests/payables/",
+        "tests/expenses/",
+        "tests/balances/",
+        "tests/accounts/"
       ],
       "search_terms": [
         "payables",
@@ -214,7 +246,7 @@
         "convex/api/v1/expenseCategories.ts",
         "convex/mcp/tools/expenses.ts",
         "src/components/operations/expenses/",
-        "src/app/(dashboard)/gastos/",
+        "src/app/(dashboard)/caja/",
         "tests/expenses/"
       ],
       "search_terms": [
@@ -232,6 +264,7 @@
         "convex/api/v1/contacts.ts",
         "convex/mcp/tools/contacts.ts",
         "src/components/catalog/customers/customers/",
+        "src/components/catalog/customers/shared/",
         "src/app/(dashboard)/clientes/",
         "tests/customers/"
       ],
@@ -356,7 +389,7 @@
         "convex/api/v1/reports.ts",
         "convex/mcp/tools/reports.ts",
         "src/components/fiscal/declarations/",
-        "src/components/resumen/",
+        "src/components/dashboard/widgets/",
         "src/app/(dashboard)/declaraciones/",
         "tests/declarations/",
         "tests/analytics/",
@@ -435,6 +468,7 @@
         "convex/integrations/financial/lib/stripe/",
         "convex/webhooks/",
         "src/components/public-portals/payment-portal/",
+        "src/components/payments/",
         "src/app/pagar/",
         "tests/publicPortals/"
       ],
@@ -471,7 +505,8 @@
         "src/components/treasury/",
         "src/app/(dashboard)/tesoreria/",
         "tests/treasury/",
-        "tests/banking/"
+        "tests/banking/",
+        "tests/accounts/"
       ],
       "search_terms": [
         "treasury",
@@ -654,6 +689,7 @@
       "selectors": [
         "convex/webhooks/",
         "convex/banking/",
+        "tests/webhooks/",
         "tests/banking/",
         "tests/integrations/",
         "tests/publicPortals/"

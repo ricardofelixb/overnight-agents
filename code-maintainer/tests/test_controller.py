@@ -120,9 +120,8 @@ class MaintainerControllerTests(unittest.TestCase):
 
     def test_config_rejects_unknown_non_boolean_and_all_disabled_agents(self) -> None:
         base = {
-            "version": 2,
+            "version": 3,
             "enabled": True,
-            "schedule": "0 1 * * *",
             "context": {
                 "skills_lock": "skills.json",
                 "skill_release_root": "skills",
@@ -135,6 +134,7 @@ class MaintainerControllerTests(unittest.TestCase):
                 {
                     "name": "example",
                     "enabled": True,
+                    "schedule": "0 13 * * *",
                     "source_path": "/tmp/source",
                     "repository": "owner/repository",
                     "base_branch": "main",
@@ -165,11 +165,127 @@ class MaintainerControllerTests(unittest.TestCase):
                 with self.assertRaisesRegex(MODULE.MaintainerFailure, message):
                     MODULE.load_config(path)
 
+    def test_config_rejects_root_schedule_and_overlapping_project_schedules(self) -> None:
+        base = {
+            "version": 3,
+            "enabled": True,
+            "context": {
+                "skills_lock": "skills.json",
+                "skill_release_root": "skills",
+                "ai_files_root": "ai-files",
+                "docs_catalog": "docs.json",
+                "docs_refresh_script": "refresh.py",
+                "docs_cache": "docs-cache",
+            },
+            "projects": [
+                {
+                    "name": "exac",
+                    "enabled": True,
+                    "schedule": "0 13 * * *",
+                    "source_path": "/tmp/exac",
+                    "repository": "owner/exac",
+                    "base_branch": "master",
+                    "environment_file": "/tmp/exac.env",
+                    "validation_commands": [["true"]],
+                },
+                {
+                    "name": "agents",
+                    "enabled": True,
+                    "schedule": "0 18 * * *",
+                    "source_path": "/tmp/agents",
+                    "repository": "owner/agents",
+                    "base_branch": "main",
+                    "environment_file": "/tmp/agents.env",
+                    "validation_commands": [["true"]],
+                },
+            ],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "config.json"
+            path.write_text(json.dumps(dict(base, schedule="0 1 * * *")))
+            with self.assertRaisesRegex(
+                MODULE.MaintainerFailure, "schedule belongs on each project"
+            ):
+                MODULE.load_config(path)
+            overlapping = json.loads(json.dumps(base))
+            overlapping["projects"][1]["schedule"] = "0 13 * * *"
+            path.write_text(json.dumps(overlapping))
+            with self.assertRaisesRegex(MODULE.MaintainerFailure, "schedule overlaps"):
+                MODULE.load_config(path)
+
+    def test_project_context_overlays_shared_defaults(self) -> None:
+        base = {
+            "version": 3,
+            "enabled": True,
+            "context": {
+                "skills_lock": "skills.json",
+                "skill_release_root": "skills",
+                "ai_files_root": "ai-files",
+                "docs_catalog": "docs.json",
+                "docs_refresh_script": "refresh.py",
+                "docs_cache": "docs-cache",
+                "docs_max_age_hours": 24,
+            },
+            "projects": [
+                {
+                    "name": "exac",
+                    "enabled": True,
+                    "schedule": "0 13 * * *",
+                    "source_path": "/tmp/exac",
+                    "repository": "owner/exac",
+                    "base_branch": "master",
+                    "environment_file": "/tmp/exac.env",
+                    "validation_commands": [["true"]],
+                },
+                {
+                    "name": "agents",
+                    "enabled": True,
+                    "schedule": "0 18 * * *",
+                    "source_path": "/tmp/agents",
+                    "repository": "owner/agents",
+                    "base_branch": "main",
+                    "environment_file": "/tmp/agents.env",
+                    "validation_commands": [["true"]],
+                    "context": {
+                        "docs_catalog": "agents-docs.json",
+                        "docs_max_age_hours": 48,
+                    },
+                },
+            ],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "config.json"
+            path.write_text(json.dumps(base))
+            config = MODULE.load_config(path)
+        self.assertEqual(
+            MODULE.resolve_context(config, config["projects"][0])["docs_catalog"],
+            "docs.json",
+        )
+        overlay = MODULE.resolve_context(config, config["projects"][1])
+        self.assertEqual(overlay["docs_catalog"], "agents-docs.json")
+        self.assertEqual(overlay["docs_max_age_hours"], 48)
+        self.assertEqual(overlay["skills_lock"], "skills.json")
+        opted_out = json.loads(json.dumps(base))
+        opted_out["projects"][1]["context"] = False
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "config.json"
+            path.write_text(json.dumps(opted_out))
+            config = MODULE.load_config(path)
+        self.assertIsNone(MODULE.resolve_context(config, config["projects"][1]))
+        invalid = json.loads(json.dumps(base))
+        invalid["projects"][1]["context"] = {"unknown": "nope"}
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "config.json"
+            path.write_text(json.dumps(invalid))
+            with self.assertRaisesRegex(
+                MODULE.MaintainerFailure, "unknown fields: unknown"
+            ):
+                MODULE.load_config(path)
+
     def test_project_name_cannot_escape_profile_directory(self) -> None:
         config = {
-            "version": 2,
+            "version": 3,
             "enabled": True,
-            "schedule": "0 1 * * *",
             "context": {
                 "skills_lock": "skills.json",
                 "skill_release_root": "skills",
@@ -182,6 +298,7 @@ class MaintainerControllerTests(unittest.TestCase):
                 {
                     "name": "..",
                     "enabled": True,
+                    "schedule": "0 13 * * *",
                     "source_path": "/tmp/source",
                     "repository": "owner/repository",
                     "base_branch": "main",

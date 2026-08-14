@@ -12,13 +12,18 @@ bounded PR, and advances cycle state only after a no-change audit or merged PR.
 - `policy.py` — JSON configuration validation
 - `config.example.json` — configuration template
 - `skills/code-maintainer/` — orchestrator, specialist roles, and project policy
-- `install_launchd.py` — native schedule installer and legacy-label migration
+- `install_launchd.py` — per-project schedule installer and legacy-label migration
 - `state/` and `logs/` — ignored runtime state
 
 Use `./controller.py --project <name> --apply` for a manual run. Never place
 prompts or canonical project policy in ignored configuration. Add a project
 under `skills/code-maintainer/references/projects/<name>/` and validate its
-`profile.json` and `slices.json` before enabling it.
+`profile.json` and `slices.json` before enabling it. Each project owns its
+`schedule`; launchd installs one job per enabled project. Root `context` is
+the shared audited Convex/React/WorkOS skill/docs cache. A TypeScript/Convex
+project inherits it, or sets a sparse overlay. A Python runtime such as
+`agents` sets `"context": false` so it never loads that pipeline. Slice
+`guidance_domains` still decide which inherited artifacts a run loads.
 
 The optional root-level `agents` object temporarily enables or disables known
 specialist roles with booleans. Omitted roles default to enabled. At least one

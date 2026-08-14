@@ -13,10 +13,36 @@ from typing import Any
 
 def configured_schedule(config_path: Path) -> str:
     value = json.loads(config_path.read_text())
-    schedule = value.get("schedule") if isinstance(value, dict) else None
-    if not isinstance(schedule, str) or not schedule.strip():
-        raise ValueError("config.json must contain a non-empty schedule")
-    return schedule
+    if not isinstance(value, dict):
+        raise ValueError("config.json must be a JSON object")
+    schedule = value.get("schedule")
+    if isinstance(schedule, str) and schedule.strip():
+        return schedule
+    jobs = enabled_project_jobs(value)
+    if len(jobs) == 1:
+        return jobs[0][1]
+    raise ValueError(
+        "config.json must contain a root schedule or exactly one enabled project schedule"
+    )
+
+
+def enabled_project_jobs(config: dict[str, Any]) -> list[tuple[str, str]]:
+    projects = config.get("projects")
+    if not isinstance(projects, list):
+        raise ValueError("config.json must contain a projects array")
+    jobs: list[tuple[str, str]] = []
+    for project in projects:
+        if not isinstance(project, dict) or not project.get("enabled"):
+            continue
+        name = project.get("name")
+        schedule = project.get("schedule")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("enabled project is missing a name")
+        if not isinstance(schedule, str) or not schedule.strip():
+            raise ValueError(f"project {name} must contain a non-empty schedule")
+        calendar_intervals(schedule)
+        jobs.append((name, schedule))
+    return jobs
 
 
 def calendar_intervals(schedule: str) -> list[dict[str, int]]:

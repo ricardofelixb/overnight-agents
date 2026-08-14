@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "enabled": false,
   "agents": {
     "reuse-simplification": true,
@@ -8,7 +8,6 @@
     "correctness-reliability": true,
     "security-hardening": true
   },
-  "schedule": "0 1,7,13,19 * * *",
   "provider": "codex",
   "codex_model": "gpt-5.6-terra",
   "codex_reasoning_effort": "high",
@@ -33,6 +32,7 @@
     {
       "name": "example",
       "enabled": false,
+      "schedule": "0 13 * * *",
       "source_path": "/absolute/path/to/project",
       "repository": "owner/repository",
       "base_branch": "main",
@@ -43,7 +43,10 @@
           "run",
           "validate"
         ]
-      ]
+      ],
+      "context": {
+        "docs_catalog": "./docs-catalog.example.json"
+      }
     }
   ]
 }

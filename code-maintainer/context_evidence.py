@@ -242,21 +242,37 @@ def prepare_context_evidence(
     workspace: Path,
     stream: TextIO,
 ) -> Path:
-    evidence: dict[str, Any] = {
-        "version": 1,
-        "project": project_name,
-        "captured_at": datetime.now(timezone.utc).isoformat(),
-        "domains": list(domains),
-        "skills": validate_skill_lock(config, domains),
-    }
-    if "convex" in domains:
-        evidence["convex_ai_files"] = validate_ai_files(
-            config, project_name, workspace
+    if config.get("context") is None:
+        if domains:
+            raise ContextFailure(
+                f"{project_name} opted out of shared provider context but the "
+                "selected slice requests guidance domains"
+            )
+        evidence: dict[str, Any] = {
+            "version": 1,
+            "project": project_name,
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+            "domains": [],
+            "skills": {},
+            "provider_context": False,
+        }
+    else:
+        evidence = {
+            "version": 1,
+            "project": project_name,
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+            "domains": list(domains),
+            "skills": validate_skill_lock(config, domains),
+            "provider_context": True,
+        }
+        if "convex" in domains:
+            evidence["convex_ai_files"] = validate_ai_files(
+                config, project_name, workspace
+            )
+        docs_manifest = refresh_official_docs(
+            config, domains, project_name, stream
         )
-    docs_manifest = refresh_official_docs(
-        config, domains, project_name, stream
-    )
-    evidence["official_docs_manifest"] = str(docs_manifest)
+        evidence["official_docs_manifest"] = str(docs_manifest)
     path = (
         Path(config["_config_dir"])
         / "state"

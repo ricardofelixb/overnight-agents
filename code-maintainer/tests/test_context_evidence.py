@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import sys
 import tempfile
@@ -10,8 +11,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from context_evidence import ContextFailure, validate_ai_files, validate_skill_lock
-from context_evidence import validate_official_docs_manifest
+from context_evidence import (
+    ContextFailure,
+    prepare_context_evidence,
+    validate_ai_files,
+    validate_official_docs_manifest,
+    validate_skill_lock,
+)
 
 
 class ContextEvidenceTests(unittest.TestCase):
@@ -126,6 +132,23 @@ class ContextEvidenceTests(unittest.TestCase):
             with self.assertRaisesRegex(ContextFailure, "hash mismatch"):
                 validate_official_docs_manifest(
                     self.config(root), manifest, ("react",)
+                )
+
+    def test_opted_out_projects_skip_provider_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = {"_config_dir": str(root), "context": None}
+            path = prepare_context_evidence(
+                config, "agents", (), root, stream=io.StringIO()
+            )
+            evidence = json.loads(path.read_text())
+            self.assertEqual(evidence["project"], "agents")
+            self.assertEqual(evidence["domains"], [])
+            self.assertEqual(evidence["skills"], {})
+            self.assertFalse(evidence["provider_context"])
+            with self.assertRaisesRegex(ContextFailure, "opted out"):
+                prepare_context_evidence(
+                    config, "agents", ("react",), root, stream=io.StringIO()
                 )
 
 

@@ -45,6 +45,7 @@ class ProjectProfileTests(unittest.TestCase):
             )
         self.assertTrue(all(set(item.roles) == ROLE_SET for item in profile.slices))
         self.assertIn("calendar", {item.identifier for item in profile.slices})
+        self.assertIn("collection-agents", {item.identifier for item in profile.slices})
         workos_slices = {
             item.identifier: item
             for item in profile.slices
@@ -58,6 +59,30 @@ class ProjectProfileTests(unittest.TestCase):
         self.assertTrue(
             all("workos" in item.guidance_domains for item in workos_slices.values())
         )
+
+    def test_agents_routes_core_and_company_slices_without_provider_domains(self) -> None:
+        skill_root = Path(__file__).resolve().parent.parent / "skills/code-maintainer"
+        profile = load_project_profile(skill_root, "agents")
+        identifiers = {item.identifier for item in profile.slices}
+        self.assertGreaterEqual(len(profile.slices), 12)
+        self.assertEqual(set(profile.role_context), ROLE_SET)
+        self.assertTrue(
+            {"core-sdk", "company-exac", "livekit-voice"} <= identifiers
+        )
+        self.assertTrue(all(set(item.roles) == ROLE_SET for item in profile.slices))
+        self.assertTrue(
+            all(item.guidance_domains == () for item in profile.slices)
+        )
+        self.assertFalse(
+            any(
+                path.name == "workos-boundaries.md"
+                for paths in profile.role_context.values()
+                for path in paths
+            )
+        )
+        workspace = Path("/Users/ricardo/Projects/agents")
+        if workspace.exists():
+            validate_profile_selectors(profile, workspace)
 
     def test_slice_registry_rejects_escaping_selectors(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

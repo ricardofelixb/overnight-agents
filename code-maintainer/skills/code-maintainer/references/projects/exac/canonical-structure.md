@@ -11,8 +11,8 @@ intentional Spanish client route:
 
 ```text
 src/app/(dashboard)/cuentas-por-pagar/   # thin route
-src/components/payables/                 # frontend owner
-convex/payables/                         # backend owner
+src/components/balances/payables/        # frontend owner
+convex/balances/payables/                # backend owner
 tests/payables/                          # behavioral mirror
 ```
 
@@ -24,7 +24,7 @@ remain Spanish.
 
 ## Frontend domains
 
-`src/components/payables/` is the compact large-domain reference:
+`src/components/balances/payables/` is the compact large-domain reference:
 
 ```text
 payables/
@@ -60,7 +60,7 @@ actual role or semantic owner over generic `helpers/`, `utils/`, or `misc/`.
 
 A small domain may remain flat when every root module is a distinct file-routed
 entry or cohesive responsibility. A large domain follows the
-`convex/sat/declarations/` pattern:
+`convex/fiscal/sat/declarations/` pattern:
 
 ```text
 declarations/

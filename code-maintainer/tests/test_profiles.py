@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -80,9 +81,19 @@ class ProjectProfileTests(unittest.TestCase):
                 for path in paths
             )
         )
-        workspace = Path("/Users/ricardo/Projects/agents")
-        if workspace.exists():
-            validate_profile_selectors(profile, workspace)
+        source = Path("/Users/ricardo/Projects/agents")
+        if source.exists():
+            tracked = subprocess.check_output(
+                ["git", "-C", str(source), "ls-tree", "-r", "--name-only", "origin/main"],
+                text=True,
+            ).splitlines()
+            with tempfile.TemporaryDirectory() as temporary:
+                workspace = Path(temporary)
+                for relative in tracked:
+                    path = workspace / relative
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text("")
+                validate_profile_selectors(profile, workspace)
 
     def test_slice_registry_rejects_escaping_selectors(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

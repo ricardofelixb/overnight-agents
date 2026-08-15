@@ -100,7 +100,7 @@
       "selectors": [
         "core/billing/",
         "tests/core/billing/",
-        "infra/billing_collector/",
+        "infra/agents-runtime/systemd/agents-billing-collector.service",
         "docs/usage-monitor.md"
       ],
       "search_terms": [

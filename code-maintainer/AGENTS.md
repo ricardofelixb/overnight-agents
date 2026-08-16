@@ -12,6 +12,7 @@ bounded PR, and advances cycle state only after a no-change audit or merged PR.
 - `policy.py` — JSON configuration validation
 - `config.example.json` — configuration template
 - `skills/code-maintainer/` — orchestrator, specialist roles, and project policy
+- `slice_repair.py` — one-shot Codex repair when slice selectors are stale
 - `install_launchd.py` — per-project schedule installer and legacy-label migration
 - `state/` and `logs/` — ignored runtime state
 
@@ -29,3 +30,7 @@ The optional root-level `agents` object temporarily enables or disables known
 specialist roles with booleans. Omitted roles default to enabled. At least one
 specialist must remain enabled; project profiles and slice registries continue
 to define the complete canonical role set.
+
+On a stale selector during `--apply`, `slice_repair.py` runs one Codex
+`gpt-5.6-luna` / medium pass against this repository, the controller verifies
+and pushes `main`, and the same job continues. Dry runs still fail closed.

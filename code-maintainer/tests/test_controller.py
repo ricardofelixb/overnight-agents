@@ -213,6 +213,178 @@ class MaintainerControllerTests(unittest.TestCase):
             with self.assertRaisesRegex(MODULE.MaintainerFailure, "schedule overlaps"):
                 MODULE.load_config(path)
 
+    def test_config_rejects_invalid_slice_repair(self) -> None:
+        base = {
+            "version": 3,
+            "enabled": True,
+            "context": {
+                "skills_lock": "skills.json",
+                "skill_release_root": "skills",
+                "ai_files_root": "ai-files",
+                "docs_catalog": "docs.json",
+                "docs_refresh_script": "refresh.py",
+                "docs_cache": "docs-cache",
+            },
+            "projects": [
+                {
+                    "name": "example",
+                    "enabled": True,
+                    "schedule": "0 13 * * *",
+                    "source_path": "/tmp/source",
+                    "repository": "owner/repository",
+                    "base_branch": "main",
+                    "environment_file": "/tmp/project.env",
+                    "validation_commands": [["true"]],
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "config.json"
+            path.write_text(json.dumps(dict(base, slice_repair={"provider": "claude"})))
+            with self.assertRaisesRegex(
+                MODULE.MaintainerFailure, "slice_repair provider must be codex"
+            ):
+                MODULE.load_config(path)
+
+    def test_apply_repairs_stale_selectors_then_continues(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            (workspace / "source.ts").write_text("export const value = 1;\n")
+            stale = self.profile(root / "profile")
+            stale = stale.__class__(
+                name=stale.name,
+                root=stale.root,
+                manifest_path=stale.manifest_path,
+                shared_context=stale.shared_context,
+                role_context=stale.role_context,
+                slices_path=stale.slices_path,
+                slices=(
+                    stale.slices[0].__class__(
+                        identifier="source",
+                        title="Source ownership",
+                        selectors=("missing.ts",),
+                        search_terms=stale.slices[0].search_terms,
+                        roles=stale.slices[0].roles,
+                        guidance_domains=stale.slices[0].guidance_domains,
+                    ),
+                ),
+            )
+            fixed = self.profile(root / "profile")
+            profiles = iter([stale, fixed])
+            repaired: list[tuple[tuple[str, str], ...]] = []
+            fake_script_dir = root / "maintainer"
+            (fake_script_dir / "state/pending").mkdir(parents=True)
+            (fake_script_dir / "state/cycles").mkdir(parents=True)
+            project = {
+                "name": "example",
+                "enabled": True,
+                "source_path": str(root / "source"),
+                "repository": "owner/example",
+                "base_branch": "main",
+                "environment_file": str(root / "example.env"),
+                "validation_commands": [["true"]],
+            }
+            config = {
+                "provider": "codex",
+                "_config_dir": str(fake_script_dir),
+                "workspace_root": str(root / "workspaces"),
+            }
+
+            def fake_repair(*args: object, **_kwargs: object) -> None:
+                repaired.append(args[4])  # type: ignore[arg-type]
+
+            with mock.patch.object(
+                MODULE, "SCRIPT_DIR", fake_script_dir
+            ), mock.patch.object(
+                MODULE, "profile_for", side_effect=lambda _project: next(profiles)
+            ), mock.patch.object(
+                MODULE, "prepare_workspace",
+                return_value={
+                    "workspace": str(workspace),
+                    "resuming": False,
+                    "branch": "",
+                    "created": True,
+                },
+            ), mock.patch.object(
+                MODULE, "repair_stale_slice_registry", side_effect=fake_repair
+            ), mock.patch.object(
+                MODULE, "active_maintainer_pr", return_value="https://github.com/owner/example/pull/9"
+            ), mock.patch.object(
+                MODULE, "reconcile_pending", return_value=None
+            ):
+                with (root / "controller.log").open("w") as stream:
+                    message = MODULE.execute_project(
+                        config, project, apply=True, stream=stream
+                    )
+
+            self.assertEqual(repaired, [(("source", "missing.ts"),)])
+            self.assertEqual(
+                message, "example: waiting for maintainer PR https://github.com/owner/example/pull/9"
+            )
+
+    def test_dry_run_does_not_repair_stale_selectors(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            stale = self.profile(root / "profile")
+            stale = stale.__class__(
+                name=stale.name,
+                root=stale.root,
+                manifest_path=stale.manifest_path,
+                shared_context=stale.shared_context,
+                role_context=stale.role_context,
+                slices_path=stale.slices_path,
+                slices=(
+                    stale.slices[0].__class__(
+                        identifier="source",
+                        title="Source ownership",
+                        selectors=("missing.ts",),
+                        search_terms=stale.slices[0].search_terms,
+                        roles=stale.slices[0].roles,
+                        guidance_domains=stale.slices[0].guidance_domains,
+                    ),
+                ),
+            )
+            fake_script_dir = root / "maintainer"
+            (fake_script_dir / "state/pending").mkdir(parents=True)
+            project = {
+                "name": "example",
+                "enabled": True,
+                "source_path": str(root / "source"),
+                "repository": "owner/example",
+                "base_branch": "main",
+                "environment_file": str(root / "example.env"),
+                "validation_commands": [["true"]],
+            }
+            with mock.patch.object(
+                MODULE, "SCRIPT_DIR", fake_script_dir
+            ), mock.patch.object(
+                MODULE, "profile_for", return_value=stale
+            ), mock.patch.object(
+                MODULE, "prepare_workspace",
+                return_value={
+                    "workspace": str(workspace),
+                    "resuming": False,
+                    "branch": "",
+                    "created": True,
+                },
+            ), mock.patch.object(
+                MODULE, "repair_stale_slice_registry"
+            ) as repair, mock.patch.object(
+                MODULE, "reconcile_pending", return_value=None
+            ):
+                with (root / "controller.log").open("w") as stream:
+                    with self.assertRaisesRegex(
+                        MODULE.ProfileFailure, "missing.ts"
+                    ):
+                        MODULE.execute_project(
+                            {}, project, apply=False, stream=stream
+                        )
+            repair.assert_not_called()
+
     def test_project_context_overlays_shared_defaults(self) -> None:
         base = {
             "version": 3,

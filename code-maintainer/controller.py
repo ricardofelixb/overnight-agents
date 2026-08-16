@@ -39,8 +39,11 @@ from profiles import (
     ProfileFailure,
     ProjectProfile,
     load_project_profile,
+    missing_profile_selectors,
+    stale_selector_failure,
     validate_profile_selectors,
 )
+from slice_repair import SliceRepairFailure, repair_stale_slice_registry
 from reporting import (
     MAINTENANCE_REPORT_PROMPT,
     REPORT_FIELD,
@@ -462,7 +465,16 @@ def execute_project(
     if pending_message:
         return finish_without_agent(pending_message)
     if not resuming:
-        validate_profile_selectors(profile, workspace)
+        missing = missing_profile_selectors(profile, workspace)
+        if missing:
+            if not apply:
+                raise stale_selector_failure(profile, workspace, missing)
+            repair_stale_slice_registry(
+                config, project, profile, workspace, missing, stream
+            )
+            profile = profile_for(project)
+            identifiers = slice_ids(profile)
+            validate_profile_selectors(profile, workspace)
     position = load_position(cycle_path(project["name"]), identifiers)
     item = enabled_slice(config, current_slice(profile, position))
     active = active_maintainer_pr(project, stream)
@@ -601,6 +613,7 @@ def execute_project(
         ContextFailure,
         CycleFailure,
         ProfileFailure,
+        SliceRepairFailure,
         runtime.RuntimeFailure,
         worktrees.WorktreeFailure,
     ) as error:
@@ -673,6 +686,7 @@ def main() -> int:
         ContextFailure,
         CycleFailure,
         ProfileFailure,
+        SliceRepairFailure,
         runtime.RuntimeFailure,
         worktrees.WorktreeFailure,
         subprocess.TimeoutExpired,

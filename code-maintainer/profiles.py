@@ -220,19 +220,33 @@ def load_project_profile(skill_root: Path, project_name: str) -> ProjectProfile:
     )
 
 
-def validate_profile_selectors(profile: ProjectProfile, workspace: Path) -> None:
-    missing = [
+def missing_profile_selectors(
+    profile: ProjectProfile, workspace: Path
+) -> tuple[tuple[str, str], ...]:
+    return tuple(
         (item.identifier, selector)
         for item in profile.slices
         for selector in item.selectors
         if not any(workspace.glob(selector.rstrip("/")))
-    ]
+    )
+
+
+def stale_selector_failure(
+    profile: ProjectProfile,
+    workspace: Path,
+    missing: tuple[tuple[str, str], ...],
+) -> ProfileFailure:
+    details = "\n".join(
+        f"- {identifier}: {selector}" for identifier, selector in missing
+    )
+    return ProfileFailure(
+        "maintenance slice selectors are stale for "
+        f"{workspace}:\n{details}\n"
+        f"Update {profile.slices_path} to match the current repository paths."
+    )
+
+
+def validate_profile_selectors(profile: ProjectProfile, workspace: Path) -> None:
+    missing = missing_profile_selectors(profile, workspace)
     if missing:
-        details = "\n".join(
-            f"- {identifier}: {selector}" for identifier, selector in missing
-        )
-        raise ProfileFailure(
-            "maintenance slice selectors are stale for "
-            f"{workspace}:\n{details}\n"
-            f"Update {profile.slices_path} to match the current repository paths."
-        )
+        raise stale_selector_failure(profile, workspace, missing)

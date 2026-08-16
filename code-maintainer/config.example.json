@@ -16,6 +16,13 @@
   "agent_timeout_seconds": 7200,
   "max_changed_files": 80,
   "max_diff_bytes": 750000,
+  "slice_repair": {
+    "enabled": true,
+    "provider": "codex",
+    "codex_model": "gpt-5.6-luna",
+    "codex_reasoning_effort": "medium",
+    "timeout_seconds": 1200
+  },
   "context": {
     "skills_lock": "../pr-reviewer/state/skills.lock.json",
     "skill_release_root": "../pr-reviewer/state/skill-releases",

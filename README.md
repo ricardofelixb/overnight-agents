@@ -35,9 +35,13 @@ Semantic slice state lives under `code-maintainer/state/cycles/`. A no-change
 audit advances immediately. A changed slice advances only after its PR merges;
 a closed-unmerged PR retries the same semantic slice. Finishing the final slice
 increments the cycle and starts again automatically. Stable slice IDs survive
-folder and filename changes. Before starting a fresh slice, the controller
-fails closed if any registered selector no longer resolves in the current
-workspace and reports every stale path that must be updated.
+folder and filename changes. Before starting a fresh `--apply` slice, the
+controller checks every registered selector against the prepared workspace. If
+any path is stale, it runs one Codex `gpt-5.6-luna` / medium-reasoning repair
+against overnight-agents, retargets `slices.json`, verifies the registry,
+commits and pushes `main`, then continues the same run. A dry run still fails
+closed. A second miss, a dirty overnight-agents tree, or an allowlist violation
+blocks the job.
 
 Runs use isolated shared workspaces under `automation/`. Each enabled project
 has its own daily launchd job and `schedule`. Exac uses
@@ -190,6 +194,7 @@ The maintainer configuration includes:
 - **`enabled`** — global and per-project boolean switches
 - **`provider`** and model settings — shared Codex or Claude invocation policy
 - **`projects`** — named repository, schedule, validation, and workspace policy objects
+- **`slice_repair`** — one-shot Codex Luna/medium remap of stale `slices.json` on overnight-agents `main`, then the same `--apply` run continues. Defaults on; set `"enabled": false` to keep the old fail-closed block.
 - **`context`** — shared audited Convex/React/WorkOS skill lock, AI-files root, and docs cache. TypeScript/Convex projects inherit it. A project may overlay individual keys, or set `"context": false` to skip that pipeline entirely.
 - **change budgets** — maximum changed files and diff bytes per autonomous PR
 

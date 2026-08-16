@@ -98,6 +98,7 @@ def validate_config(config: dict[str, Any]) -> None:
         5_000_000,
         "max_diff_bytes",
     )
+    _validate_slice_repair(config.get("slice_repair"))
 
     _validate_context(config.get("context"), "context", complete=True)
 
@@ -165,6 +166,58 @@ def validate_config(config: dict[str, Any]) -> None:
             raise ConfigurationFailure(
                 f"project {name} workspace management_token_file must be a path"
             )
+
+
+SLICE_REPAIR_KEYS = frozenset(
+    {
+        "enabled",
+        "provider",
+        "codex_model",
+        "codex_reasoning_effort",
+        "timeout_seconds",
+    }
+)
+SLICE_REPAIR_EFFORTS = frozenset(
+    {"none", "minimal", "low", "medium", "high", "xhigh", "max"}
+)
+
+
+def _validate_slice_repair(value: Any) -> None:
+    if value is None:
+        return
+    if not isinstance(value, dict):
+        raise ConfigurationFailure("slice_repair must be an object")
+    unknown = set(value) - SLICE_REPAIR_KEYS
+    if unknown:
+        raise ConfigurationFailure(
+            "slice_repair contains unknown fields: " + ", ".join(sorted(unknown))
+        )
+    if "enabled" in value and not isinstance(value["enabled"], bool):
+        raise ConfigurationFailure("slice_repair enabled must be a boolean")
+    if "provider" in value and value["provider"] != "codex":
+        raise ConfigurationFailure("slice_repair provider must be codex")
+    if "codex_model" in value and not _path(value["codex_model"]):
+        raise ConfigurationFailure("slice_repair requires codex_model")
+    effort = value.get("codex_reasoning_effort")
+    if effort is not None and effort not in SLICE_REPAIR_EFFORTS:
+        raise ConfigurationFailure("slice_repair codex_reasoning_effort is invalid")
+    if "timeout_seconds" in value:
+        _bounded_integer(
+            value["timeout_seconds"], 60, 7200, "slice_repair timeout_seconds"
+        )
+
+
+def resolve_slice_repair(config: dict[str, Any]) -> dict[str, Any] | None:
+    overlay = config.get("slice_repair") or {}
+    if not isinstance(overlay, dict) or overlay.get("enabled", True) is False:
+        return None
+    return {
+        "enabled": True,
+        "provider": "codex",
+        "codex_model": overlay.get("codex_model", "gpt-5.6-luna"),
+        "codex_reasoning_effort": overlay.get("codex_reasoning_effort", "medium"),
+        "timeout_seconds": overlay.get("timeout_seconds", 1200),
+    }
 
 
 def _validate_context(context: Any, label: str, *, complete: bool) -> None:

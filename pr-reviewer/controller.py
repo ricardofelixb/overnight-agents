@@ -30,6 +30,7 @@ if str(AUTOMATION_ROOT) not in sys.path:
     sys.path.insert(0, str(AUTOMATION_ROOT))
 import worktrees as worktree_lifecycle
 import runtime as shared_runtime
+from completion_reporter import report_completion
 
 
 PR_FIELDS = ",".join(
@@ -1662,9 +1663,12 @@ def execute(
     force: bool = False,
     operation: str = "review",
     progress: GitHubProgress | None = None,
+    completion: dict[str, str] | None = None,
 ) -> int:
     config, _ = load_configuration(config_path)
     project = select_project(config, project_name)
+    if completion is not None:
+        completion["repo"] = project["repository"]
     require_commands()
 
     state_root = Path(config["state_root"])
@@ -1696,6 +1700,11 @@ def execute(
         if source_repository.lower() != repository.lower():
             raise ReviewFailure("configured repository does not match source checkout")
         pr = fetch_pr(runner, repository, pr_number)
+        if completion is not None:
+            completion.update(
+                pr_url=pr.get("url", ""),
+                summary=f"PR #{pr_number} is being processed.",
+            )
         eligibility_errors = evaluate_pr_eligibility(pr, project)
         if eligibility_errors:
             raise ReviewFailure("ineligible PR: " + "; ".join(eligibility_errors))
@@ -1708,6 +1717,10 @@ def execute(
                     "Already reviewed",
                     "This exact pull-request state already has a current review.",
                 )
+            if completion is not None:
+                completion["summary"] = (
+                    "This exact pull-request state was already reviewed."
+                )
             return 0
         if operation == "review" and not force and legacy_head_was_reviewed(state_root, project_name, pr):
             record_review_state(state_root, project_name, pr, "legacy-reviewed")
@@ -1717,6 +1730,10 @@ def execute(
                     "complete",
                     "Already reviewed",
                     "A prior review for this exact head was migrated into current state.",
+                )
+            if completion is not None:
+                completion["summary"] = (
+                    "A prior review for this exact head was migrated into current state."
                 )
             return 0
 
@@ -1817,6 +1834,11 @@ def execute(
                         if blocked
                         else "The simplification command completed and any verified commit was published."
                     ),
+                )
+            if completion is not None:
+                completion.update(
+                    summary=simplification_state.get("summary", "Simplification completed."),
+                    commit=final_head if final_head != remote_input_head else "",
                 )
             return 2 if blocked else 0
 
@@ -1981,12 +2003,22 @@ def execute(
                         deliver_notification(event_path, Path(config["telegram_env"]), state_root)
                 except (NotificationFailure, OSError, ValueError):
                     runner.log("Telegram blocker notification was queued for retry")
+            if completion is not None:
+                completion.update(
+                    summary=result.get("summary", "Review completed with blockers."),
+                    commit=final_head if final_head != original_head else "",
+                )
             return 2
         if progress is not None:
             progress.finish(
                 "complete",
                 "Review complete",
                 "The authoritative review result has been published on this pull request.",
+            )
+        if completion is not None:
+            completion.update(
+                summary=result.get("summary", "Review completed."),
+                commit=final_head if final_head != original_head else "",
             )
         return 0
 
@@ -2003,6 +2035,13 @@ def main() -> int:
     parser.add_argument("--command-comment-id", type=int)
     args = parser.parse_args()
     progress: GitHubProgress | None = None
+    result = 2
+    completion = {
+        "repo": args.project,
+        "summary": f"PR #{args.pr} controller crashed before producing a result.",
+        "pr_url": "",
+        "commit": "",
+    }
     try:
         if args.progress_delivery or args.command_comment_id:
             if not args.progress_delivery or not args.command_comment_id:
@@ -2022,7 +2061,7 @@ def main() -> int:
             )
             progress.acknowledge_queued()
             progress.start_heartbeat()
-        return execute(
+        result = execute(
             args.config,
             args.project,
             args.pr,
@@ -2030,7 +2069,9 @@ def main() -> int:
             args.force,
             args.operation,
             progress,
+            completion,
         )
+        return result
     except ReviewFailure as error:
         if progress is not None:
             progress.finish(
@@ -2038,11 +2079,29 @@ def main() -> int:
                 "Controller stopped",
                 "The command stopped at a concrete precondition or safety blocker. Check the worker log for details.",
             )
+        completion["summary"] = f"Blocked: {error}"
         print(f"BLOCKED: {error}", file=sys.stderr)
-        return 2
+        result = 2
+        return result
     finally:
-        if progress is not None:
-            progress.stop_heartbeat()
+        try:
+            if progress is not None:
+                progress.stop_heartbeat()
+        finally:
+            report_completion(
+                job=(
+                    "pr-reviewer"
+                    if args.operation == "review"
+                    else "pr-simplifier"
+                ),
+                repo=completion["repo"],
+                status="success" if result == 0 else "failure",
+                summary=completion["summary"],
+                pr_url=completion["pr_url"],
+                commit=completion["commit"],
+                env_path=Path(__file__).resolve().with_name(".env"),
+                extra={"pr_number": args.pr},
+            )
 
 
 if __name__ == "__main__":

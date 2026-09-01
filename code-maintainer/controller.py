@@ -23,7 +23,7 @@ if str(REPO_ROOT) not in sys.path:
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from automation import clones, pull_requests, runtime, worktrees
+from automation import clones, completion_reporter, pull_requests, runtime, worktrees
 from context_evidence import ContextFailure, prepare_context_evidence
 from cycles import (
     CycleFailure,
@@ -438,8 +438,15 @@ def publish(
 
 
 def execute_project(
-    config: dict[str, Any], project: dict[str, Any], *, apply: bool, stream: TextIO
+    config: dict[str, Any],
+    project: dict[str, Any],
+    *,
+    apply: bool,
+    stream: TextIO,
+    completion: dict[str, str] | None = None,
 ) -> str:
+    if completion is not None:
+        completion["repo"] = project["repository"]
     profile = profile_for(project)
     identifiers = slice_ids(profile)
     prepared = prepare_workspace(config, project, stream)
@@ -463,6 +470,11 @@ def execute_project(
 
     pending_message = reconcile_pending(project, profile, stream)
     if pending_message:
+        if completion is not None:
+            completion["summary"] = pending_message
+            match = re.search(r"https://github\.com/[^\s]+/pull/\d+", pending_message)
+            if match:
+                completion["pr_url"] = match.group(0)
         return finish_without_agent(pending_message)
     if not resuming:
         missing = missing_profile_selectors(profile, workspace)
@@ -479,14 +491,18 @@ def execute_project(
     item = enabled_slice(config, current_slice(profile, position))
     active = active_maintainer_pr(project, stream)
     if active:
-        return finish_without_agent(
-            f"{project['name']}: waiting for maintainer PR {active}"
-        )
+        message = f"{project['name']}: waiting for maintainer PR {active}"
+        if completion is not None:
+            completion.update(summary=message, pr_url=active)
+        return finish_without_agent(message)
     if not apply:
-        return finish_without_agent(
+        message = (
             f"{project['name']}: cycle {position.cycle} next slice is "
             f"{item.identifier} — {item.title}"
         )
+        if completion is not None:
+            completion["summary"] = message
+        return finish_without_agent(message)
     checkpoint(cycle_path(project["name"]), position, identifiers)
 
     branch = str(prepared["branch"]) if resuming else unique_branch(workspace)
@@ -579,10 +595,13 @@ def execute_project(
                 outcome="audited-no-change",
             )
             terminal_cleanup = True
-            return (
+            message = (
                 f"{project['name']}: cycle {position.cycle} {item.identifier} "
                 "required no source changes"
             )
+            if completion is not None:
+                completion["summary"] = message
+            return message
         url = publish(
             workspace,
             config,
@@ -608,7 +627,14 @@ def execute_project(
             },
         )
         terminal_cleanup = True
-        return f"{project['name']}: created {url}"
+        message = f"{project['name']}: created {url}"
+        if completion is not None:
+            completion.update(
+                summary=message,
+                pr_url=url,
+                commit=runtime.git(workspace, "rev-parse", "HEAD").stdout.strip(),
+            )
+        return message
     except (
         ContextFailure,
         CycleFailure,
@@ -646,14 +672,23 @@ def main() -> int:
     parser.add_argument("--project")
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
+    result = 2
+    completion = {
+        "repo": args.project or "code-maintainer",
+        "summary": "Code maintenance controller crashed before producing a result.",
+        "pr_url": "",
+        "commit": "",
+    }
     try:
         runtime.load_environment_file(
             SCRIPT_DIR / ".env", os.environ, require_private=True
         )
         config = load_config(args.config)
         if not config["enabled"]:
-            print("DISABLED — skipping code maintainer")
-            return 0
+            completion["summary"] = "DISABLED — skipping code maintainer"
+            print(completion["summary"])
+            result = 0
+            return result
         state = SCRIPT_DIR / "state"
         state.mkdir(parents=True, exist_ok=True)
         shared_state = REPO_ROOT / "state"
@@ -662,24 +697,35 @@ def main() -> int:
             try:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
-                print("SKIPPED — another scheduled maintenance agent is running")
-                return 0
+                completion["summary"] = (
+                    "SKIPPED — another scheduled maintenance agent is running"
+                )
+                print(completion["summary"])
+                result = 0
+                return result
             project = select_project(
                 config, args.project, state / "rotation-index"
             )
             if not project:
-                print("SKIPPED — no enabled maintainer projects")
-                return 0
+                completion["summary"] = "SKIPPED — no enabled maintainer projects"
+                print(completion["summary"])
+                result = 0
+                return result
             logs = SCRIPT_DIR / "logs"
             logs.mkdir(parents=True, exist_ok=True)
             stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             with (logs / f"maintain_{stamp}.log").open("a") as stream:
                 message = execute_project(
-                    config, project, apply=args.apply, stream=stream
+                    config,
+                    project,
+                    apply=args.apply,
+                    stream=stream,
+                    completion=completion,
                 )
             runtime.prune_logs(logs, "maintain_*.log")
             print(message)
-        return 0
+        result = 0
+        return result
     except (
         OSError,
         MaintainerFailure,
@@ -691,8 +737,20 @@ def main() -> int:
         worktrees.WorktreeFailure,
         subprocess.TimeoutExpired,
     ) as error:
+        completion["summary"] = f"Blocked: {error}"
         print(f"BLOCKED: {error}", file=sys.stderr)
-        return 2
+        result = 2
+        return result
+    finally:
+        completion_reporter.report_completion(
+            job="code-maintainer",
+            repo=completion["repo"],
+            status="success" if result == 0 else "failure",
+            summary=completion["summary"],
+            pr_url=completion["pr_url"],
+            commit=completion["commit"],
+            env_path=SCRIPT_DIR / ".env",
+        )
 
 
 if __name__ == "__main__":

@@ -113,10 +113,17 @@ The two commands are intentionally independent. `/simplify` runs only the simpli
 
    ```bash
    chmod 600 pr-reviewer/.env
+   chmod 600 code-maintainer/.env
    chmod 600 code-maintainer/state/env/*.env.local
    ```
 
    Do not manually invent a webhook secret. `configure_webhook.py` creates and persists one without printing it.
+
+   Set `GROK_BOT_WEBHOOK_URL` and `GROK_BOT_WEBHOOK_KEY` in each automation's
+   private `.env` file. Copy both values from the Grok Bot routine “Mac mini
+   coding jobs” (info pane → Routines). Every terminal maintainer, reviewer,
+   and simplifier result is posted through the shared completion reporter;
+   missing credentials or delivery failures are logged and never change the job result.
 
 4. Edit the local ignored configuration files with project paths, repositories, base branches, and validation commands.
 5. For `code-maintainer`:

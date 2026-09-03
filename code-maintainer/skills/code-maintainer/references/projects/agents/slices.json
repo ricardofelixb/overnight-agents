@@ -3,7 +3,6 @@
   "defaults": {
     "roles": [
       "reuse-simplification",
-      "maintainability-organization",
       "efficiency-performance",
       "correctness-reliability",
       "security-hardening"

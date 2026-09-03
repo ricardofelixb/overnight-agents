@@ -43,7 +43,6 @@ class MaintainerControllerTests(unittest.TestCase):
             search_terms=("source",),
             roles=(
                 "reuse-simplification",
-                "maintainability-organization",
                 "efficiency-performance",
                 "correctness-reliability",
                 "security-hardening",
@@ -90,7 +89,6 @@ class MaintainerControllerTests(unittest.TestCase):
         selected = MODULE.enabled_slice(
             {
                 "agents": {
-                    "maintainability-organization": False,
                     "security-hardening": False,
                 }
             },
@@ -637,7 +635,7 @@ class MaintainerControllerTests(unittest.TestCase):
                     ],
                     "deferred": [
                         {
-                            "role": "maintainability-organization",
+                            "role": "correctness-reliability",
                             "summary": "Deferred a rename without a canonical target.",
                         }
                     ],
@@ -711,7 +709,7 @@ class MaintainerControllerTests(unittest.TestCase):
             self.assertIn("semantic slice `source`", created_body["value"])
             self.assertIn("## Specialist outcomes", created_body["value"])
             self.assertIn(
-                "**Maintainability organization — No change:**",
+                "**Correctness reliability — No change:**",
                 created_body["value"],
             )
             self.assertIn("## Changes made", created_body["value"])

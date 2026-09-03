@@ -9,10 +9,6 @@
     "reuse-simplification": [
       "ownership.md"
     ],
-    "maintainability-organization": [
-      "ownership.md",
-      "canonical-structure.md"
-    ],
     "efficiency-performance": [
       "ownership.md",
       "performance.md"

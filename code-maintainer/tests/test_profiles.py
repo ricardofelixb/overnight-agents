@@ -24,16 +24,11 @@ class ProjectProfileTests(unittest.TestCase):
         profile = load_project_profile(skill_root, "exac")
         self.assertGreaterEqual(len(profile.slices), 35)
         self.assertEqual(set(profile.role_context), ROLE_SET)
-        self.assertTrue(
-            any(path.name == "canonical-structure.md"
-                for path in profile.role_context["maintainability-organization"])
-        )
         self.assertFalse(
             any(path.name == "canonical-structure.md"
                 for path in profile.role_context["efficiency-performance"])
         )
         for role in (
-            "maintainability-organization",
             "efficiency-performance",
             "correctness-reliability",
             "security-hardening",

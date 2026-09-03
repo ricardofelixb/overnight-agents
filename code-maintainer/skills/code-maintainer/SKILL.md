@@ -1,6 +1,6 @@
 ---
 name: code-maintainer
-description: Maintain one controller-selected semantic repository slice with routed specialists for simplification, canonical organization, efficiency, correctness, and security. Use only inside the scheduled code-maintainer controller to produce evidence-backed, bounded changes under the project profile and current audited guidance.
+description: Maintain one controller-selected semantic repository slice with routed specialists for simplification, efficiency, correctness, and security. Use only inside the scheduled code-maintainer controller to produce evidence-backed, bounded changes under the project profile and current audited guidance.
 ---
 
 # Scheduled Code Maintainer
@@ -19,7 +19,6 @@ defect. Fewer lines are useful only when clarity and behavior improve.
    file it names.
 4. For each role listed by the selected slice, read the matching prompt:
    - [reuse and simplification](references/roles/reuse-simplification.md)
-   - [maintainability and organization](references/roles/maintainability-organization.md)
    - [efficiency and performance](references/roles/efficiency-performance.md)
    - [correctness and reliability](references/roles/correctness-reliability.md)
    - [security hardening](references/roles/security-hardening.md)

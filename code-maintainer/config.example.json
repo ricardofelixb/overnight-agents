@@ -3,7 +3,6 @@
   "enabled": false,
   "agents": {
     "reuse-simplification": true,
-    "maintainability-organization": true,
     "efficiency-performance": true,
     "correctness-reliability": true,
     "security-hardening": true

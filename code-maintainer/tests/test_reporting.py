@@ -18,7 +18,6 @@ from reporting import (  # noqa: E402
 
 ROLES = (
     "reuse-simplification",
-    "maintainability-organization",
     "efficiency-performance",
     "correctness-reliability",
     "security-hardening",
@@ -44,7 +43,7 @@ def report_output(**overrides: object) -> str:
         ],
         "deferred": [
             {
-                "role": "maintainability-organization",
+                "role": "correctness-reliability",
                 "summary": "Deferred utils.ts rename because no canonical target exists.",
             }
         ],
@@ -62,7 +61,7 @@ class MaintenanceReportingTests(unittest.TestCase):
         body = maintenance_report_sections(report)
 
         self.assertIn("## Specialist outcomes", body)
-        self.assertIn("**Maintainability organization — No change:**", body)
+        self.assertIn("**Correctness reliability — No change:**", body)
         self.assertIn("## Changes made", body)
         self.assertIn("Authorized calendar mutations", body)
         self.assertIn("## Deferred findings", body)

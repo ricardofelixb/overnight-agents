@@ -40,7 +40,6 @@ class SliceRepairTests(unittest.TestCase):
             search_terms=("source",),
             roles=(
                 "reuse-simplification",
-                "maintainability-organization",
                 "efficiency-performance",
                 "correctness-reliability",
                 "security-hardening",

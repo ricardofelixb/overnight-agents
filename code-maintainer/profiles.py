@@ -11,7 +11,6 @@ from typing import Any
 
 ROLE_NAMES = (
     "reuse-simplification",
-    "maintainability-organization",
     "efficiency-performance",
     "correctness-reliability",
     "security-hardening",

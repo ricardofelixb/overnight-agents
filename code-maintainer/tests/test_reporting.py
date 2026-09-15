@@ -10,6 +10,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
 from reporting import (  # noqa: E402
+    MAINTENANCE_REPORT_PROMPT,
     ReportFailure,
     maintenance_report_sections,
     parse_maintenance_report,
@@ -48,8 +49,6 @@ def report_output(**overrides: object) -> str:
             }
         ],
         "rejected": [],
-        "validation": ["pnpm run validate:worktree passed."],
-        "verifier": "PASS — no contract or scope issues.",
     }
     value.update(overrides)
     return f"Summary\nMAINTENANCE_REPORT_JSON: {json.dumps(value)}"
@@ -67,8 +66,8 @@ class MaintenanceReportingTests(unittest.TestCase):
         self.assertIn("## Deferred findings", body)
         self.assertIn("no canonical target exists", body)
         self.assertIn("## Rejected findings\n- None.", body)
-        self.assertIn("pnpm run validate:worktree passed", body)
-        self.assertIn("**Independent verifier:** PASS", body)
+        self.assertNotIn("Reported validation", body)
+        self.assertNotIn("Independent verifier", body)
 
     def test_rejects_a_missing_selected_role(self) -> None:
         outcomes = [
@@ -96,6 +95,25 @@ class MaintenanceReportingTests(unittest.TestCase):
         output = report_output()
 
         report = parse_maintenance_report(f"{output}\n{output}", ROLES)
+
+        self.assertEqual(
+            report.summary,
+            "Simplified the calendar slice without changing contracts.",
+        )
+
+    def test_ignores_the_legacy_prompt_schema_echo(self) -> None:
+        legacy_example = (
+            'MAINTENANCE_REPORT_JSON: {"summary":"one-sentence outcome",'
+            '"role_outcomes":[{"role":"selected-role-id","status":'
+            '"changed|no-change|deferred|mixed","summary":"example"}],'
+            '"changes":[],"deferred":[],"rejected":[],"validation":[], '
+            '"verifier":"PASS or FAIL"}'
+        )
+
+        report = parse_maintenance_report(
+            f"{MAINTENANCE_REPORT_PROMPT}\n{legacy_example}\n{report_output()}",
+            ROLES,
+        )
 
         self.assertEqual(
             report.summary,

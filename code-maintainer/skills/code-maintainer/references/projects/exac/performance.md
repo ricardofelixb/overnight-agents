@@ -2,7 +2,7 @@
 
 For Convex, read the current workspace
 `convex/_generated/ai/guidelines.md` before analysis. Use the audited
-`convex-performance-audit` skill only for a concrete Convex mechanism.
+`convex-optimize` skill only for a concrete Convex mechanism.
 
 Assess query bounds, index use, documents and bytes read, subscription
 invalidation, transaction duration, write contention, action/query boundaries,

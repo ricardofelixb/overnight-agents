@@ -4,6 +4,9 @@
 an isolated workspace, verifies fresh hashed skills, Convex AI guidance, and
 official documentation, invokes the `code-maintainer` skill, publishes a
 bounded PR, and advances cycle state only after a no-change audit or merged PR.
+Codex sessions are persisted with pending PRs. A completed GitHub workflow
+failure resumes that exact session for a bounded repair, while periodic
+reconciliation covers missed webhook delivery.
 
 - `controller.py` — lifecycle, safety budgets, publication, and pending PRs
 - `profiles.py` — project manifests, role routing, and semantic slices
@@ -13,6 +16,7 @@ bounded PR, and advances cycle state only after a no-change audit or merged PR.
 - `config.example.json` — configuration template
 - `skills/code-maintainer/` — orchestrator, specialist roles, and project policy
 - `slice_repair.py` — one-shot Codex repair when slice selectors are stale
+- `ci_repair.py` — exact-head CI status recording and same-session repair
 - `install_launchd.py` — per-project schedule installer and legacy-label migration
 - `state/` and `logs/` — ignored runtime state
 

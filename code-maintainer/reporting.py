@@ -10,7 +10,11 @@ from typing import Iterable
 
 MAINTENANCE_REPORT_PROMPT = """
 In your final response, include exactly one single-line field using valid JSON:
-MAINTENANCE_REPORT_JSON: {"summary":"one-sentence outcome","role_outcomes":[{"role":"selected-role-id","status":"changed|no-change|deferred|mixed","summary":"what this specialist proved and what happened"}],"changes":[{"role":"selected-role-id","summary":"adopted change, important path or behavior, and proof"}],"deferred":[{"role":"selected-role-id","summary":"real finding and exact reason or boundary that prevented a change"}],"rejected":[{"role":"selected-role-id","summary":"lead rejected by the evidence gate and why"}],"validation":["exact check and result"],"verifier":"PASS or FAIL with the independent verifier conclusion"}
+MAINTENANCE_REPORT_JSON: <one compact JSON object matching the required schema>
+
+Required schema: summary string; role_outcomes array of role/status/summary
+objects; changes, deferred, and rejected arrays of role/summary objects. Status
+must be changed, no-change, deferred, or mixed.
 
 Include every selected role exactly once in role_outcomes, even when it found no
 actionable change. Use empty arrays when there are no deferred or rejected
@@ -54,8 +58,6 @@ class MaintenanceReport:
     changes: tuple[ReportItem, ...]
     deferred: tuple[ReportItem, ...]
     rejected: tuple[ReportItem, ...]
-    validation: tuple[str, ...]
-    verifier: str
 
 
 def _clean_text(value: object, field: str) -> str:
@@ -112,21 +114,31 @@ def parse_maintenance_report(
     matches = list(_REPORT_PATTERN.finditer(output))
     if not matches:
         raise ReportFailure("maintenance agent must emit a MAINTENANCE_REPORT_JSON field")
-    try:
-        raw = json.loads(matches[0].group(1))
-    except json.JSONDecodeError as error:
-        raise ReportFailure(
-            f"MAINTENANCE_REPORT_JSON is not valid JSON: {error.msg}"
-        ) from error
-    if not isinstance(raw, dict):
-        raise ReportFailure("MAINTENANCE_REPORT_JSON must be an object")
-    for match in matches[1:]:
+    decoded: list[object] = []
+    for match in matches:
         try:
-            duplicate = json.loads(match.group(1))
+            candidate = json.loads(match.group(1))
         except json.JSONDecodeError as error:
             raise ReportFailure(
                 f"MAINTENANCE_REPORT_JSON is not valid JSON: {error.msg}"
             ) from error
+        if (
+            isinstance(candidate, dict)
+            and candidate.get("summary") == "one-sentence outcome"
+            and any(
+                isinstance(item, dict)
+                and item.get("role") == "selected-role-id"
+                for item in candidate.get("role_outcomes", [])
+            )
+        ):
+            continue
+        decoded.append(candidate)
+    if not decoded:
+        raise ReportFailure("maintenance agent must emit a final MAINTENANCE_REPORT_JSON field")
+    raw = decoded[0]
+    if not isinstance(raw, dict):
+        raise ReportFailure("MAINTENANCE_REPORT_JSON must be an object")
+    for duplicate in decoded[1:]:
         if duplicate != raw:
             raise ReportFailure(
                 "maintenance agent emitted conflicting MAINTENANCE_REPORT_JSON fields"
@@ -169,13 +181,6 @@ def parse_maintenance_report(
     changes = _report_items(raw.get("changes"), "changes", expected_roles)
     if not changes:
         raise ReportFailure("changes must describe at least one adopted change")
-    validation = tuple(
-        _clean_text(item, f"validation[{index}]")
-        for index, item in enumerate(_list(raw.get("validation"), "validation"))
-    )
-    if not validation:
-        raise ReportFailure("validation must contain at least one result")
-
     return MaintenanceReport(
         summary=_clean_text(raw.get("summary"), "summary"),
         role_outcomes=tuple(
@@ -184,8 +189,6 @@ def parse_maintenance_report(
         changes=changes,
         deferred=_report_items(raw.get("deferred"), "deferred", expected_roles),
         rejected=_report_items(raw.get("rejected"), "rejected", expected_roles),
-        validation=validation,
-        verifier=_clean_text(raw.get("verifier"), "verifier"),
     )
 
 
@@ -212,7 +215,6 @@ def maintenance_report_sections(report: MaintenanceReport) -> str:
         f"{outcome.summary}"
         for outcome in report.role_outcomes
     )
-    validation = "\n".join(f"- {result}" for result in report.validation)
     return "\n\n".join(
         (
             f"## Summary\n\n{report.summary}",
@@ -220,10 +222,5 @@ def maintenance_report_sections(report: MaintenanceReport) -> str:
             _findings_section("Changes made", report.changes),
             _findings_section("Deferred findings", report.deferred),
             _findings_section("Rejected findings", report.rejected),
-            (
-                "## Reported validation\n\n"
-                f"{validation}\n"
-                f"- **Independent verifier:** {report.verifier}"
-            ),
         )
     )

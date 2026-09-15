@@ -4,8 +4,8 @@
   "domains": {
     "convex": [
       {
-        "name": "convex-performance-audit",
-        "path": "/absolute/path/to/global/convex-performance-audit",
+        "name": "convex-optimize",
+        "path": "/absolute/path/to/global/convex-optimize",
         "source": "https://github.com/get-convex/agent-skills",
         "revision": "40-character-commit-sha",
         "updated_at": "2026-01-01T00:00:00+00:00",

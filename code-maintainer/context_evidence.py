@@ -115,6 +115,43 @@ def validate_skill_lock(
 def validate_ai_files(
     config: dict[str, Any], project_name: str, workspace: Path
 ) -> dict[str, Any]:
+    manifest = validate_ai_files_freshness(config, project_name)
+    metadata = (manifest.get("files") or {}).get(
+        "convex/_generated/ai/guidelines.md"
+    )
+    project_root = (
+        _path(config, config["context"].get("ai_files_root"), "ai_files_root")
+        / project_name
+    ).resolve()
+    releases_root = (project_root / "releases").resolve()
+    release = Path(str(manifest.get("release_path", ""))).resolve()
+    if release == releases_root or releases_root not in release.parents:
+        raise ContextFailure("Convex AI-files release path escapes the audited store")
+    audited_guidelines = release / "convex/_generated/ai/guidelines.md"
+    if not isinstance(metadata, dict) or not audited_guidelines.is_file():
+        raise ContextFailure("Convex guidance is unavailable")
+    content = audited_guidelines.read_bytes()
+    if (
+        len(content) != metadata.get("bytes")
+        or hashlib.sha256(content).hexdigest() != metadata.get("sha256")
+    ):
+        raise ContextFailure(
+            "audited Convex guidance differs from its manifest"
+        )
+    return {
+        key: manifest.get(key)
+        for key in (
+            "project",
+            "refreshed_at",
+            "release_path",
+            "base_sha",
+        )
+    }
+
+
+def validate_ai_files_freshness(
+    config: dict[str, Any], project_name: str
+) -> dict[str, Any]:
     context = config["context"]
     manifest_path = (
         _path(config, context.get("ai_files_root"), "ai_files_root")
@@ -129,29 +166,46 @@ def validate_ai_files(
         timedelta(days=int(context.get("ai_files_max_age_days", 8))),
         "Convex AI-files snapshot",
     )
-    metadata = (manifest.get("files") or {}).get(
-        "convex/_generated/ai/guidelines.md"
-    )
-    workspace_guidelines = workspace / "convex/_generated/ai/guidelines.md"
-    if not isinstance(metadata, dict) or not workspace_guidelines.is_file():
-        raise ContextFailure("Convex guidance is unavailable")
-    content = workspace_guidelines.read_bytes()
+    return manifest
+
+
+def ensure_provider_context(
+    config: dict[str, Any],
+    project_name: str,
+    domains: tuple[str, ...],
+    stream: TextIO,
+) -> None:
+    """Refresh stale audited provider context before provisioning a workspace."""
+
     if (
-        len(content) != metadata.get("bytes")
-        or hashlib.sha256(content).hexdigest() != metadata.get("sha256")
+        config.get("context") is None
+        or not domains
+        or not config["context"].get("provider_refresh_script")
     ):
-        raise ContextFailure(
-            "workspace Convex guidance differs from the latest audited AI-files snapshot"
-        )
-    return {
-        key: manifest.get(key)
-        for key in (
-            "project",
-            "refreshed_at",
-            "release_path",
-            "base_sha",
-        )
-    }
+        return
+
+    def validate() -> None:
+        validate_skill_lock(config, domains)
+        if "convex" in domains:
+            validate_ai_files_freshness(config, project_name)
+
+    try:
+        validate()
+        return
+    except ContextFailure as error:
+        stream.write(f"Provider context preflight requires refresh: {error}\n")
+        stream.flush()
+
+    refresh_script = _path(
+        config,
+        config["context"].get("provider_refresh_script"),
+        "provider_refresh_script",
+    )
+    runtime.run(
+        [sys.executable, str(refresh_script), "--project", project_name],
+        stream=stream,
+    )
+    validate()
 
 
 def refresh_official_docs(

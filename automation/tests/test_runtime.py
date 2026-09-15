@@ -9,7 +9,9 @@ from unittest import mock
 
 from automation.runtime import (
     AGENT_PROCESS_GUIDANCE,
+    agent_command,
     agent_environment,
+    codex_session,
     protected_repository_config,
     prune_logs,
     repository_runtime_path,
@@ -17,6 +19,25 @@ from automation.runtime import (
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_persisted_codex_command_uses_json_instead_of_ephemeral(self) -> None:
+        command = agent_command(
+            {"provider": "codex"},
+            Path("/tmp/workspace"),
+            "prompt",
+            persist_session=True,
+        )
+        self.assertIn("--json", command)
+        self.assertNotIn("--ephemeral", command)
+
+    def test_codex_session_extracts_thread_and_messages(self) -> None:
+        output = "\n".join(
+            [
+                '{"type":"thread.started","thread_id":"thread-1"}',
+                '{"type":"item.completed","item":{"type":"agent_message","text":"done"}}',
+            ]
+        )
+        self.assertEqual(codex_session(output), ("thread-1", "done"))
+
     def test_agent_environment_keeps_provider_auth_but_not_controller_credentials(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             workspace = Path(temporary)

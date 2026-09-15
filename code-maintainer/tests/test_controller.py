@@ -35,6 +35,31 @@ class MaintainerControllerTests(unittest.TestCase):
             check=True,
         ).stdout.strip()
 
+    def test_disk_capacity_prunes_before_failing(self) -> None:
+        stream = io.StringIO()
+        with mock.patch.object(
+            MODULE.shutil,
+            "disk_usage",
+            side_effect=[mock.Mock(free=2_000), mock.Mock(free=12_000)],
+        ), mock.patch.object(MODULE.runtime, "run") as run:
+            MODULE.ensure_disk_capacity({"minimum_free_bytes": 10_000}, stream)
+
+        run.assert_called_once_with(["pnpm", "store", "prune"], stream=stream)
+        self.assertIn("pruning the pnpm store", stream.getvalue())
+
+    def test_disk_capacity_fails_early_when_prune_is_insufficient(self) -> None:
+        with mock.patch.object(
+            MODULE.shutil,
+            "disk_usage",
+            side_effect=[mock.Mock(free=2_000), mock.Mock(free=3_000)],
+        ), mock.patch.object(MODULE.runtime, "run"):
+            with self.assertRaisesRegex(
+                MODULE.MaintainerFailure, "insufficient disk before maintenance"
+            ):
+                MODULE.ensure_disk_capacity(
+                    {"minimum_free_bytes": 10_000}, io.StringIO()
+                )
+
     def profile(self, root: Path) -> ProjectProfile:
         item = MaintenanceSlice(
             identifier="source",
@@ -81,7 +106,27 @@ class MaintainerControllerTests(unittest.TestCase):
         self.assertIn('"security-hardening"', prompt)
         self.assertIn("/tmp/evidence.json", prompt)
         self.assertIn("bounded concurrent batches", prompt)
-        self.assertIn("fresh verifier", prompt)
+        self.assertIn("Do not run tests", prompt)
+        self.assertIn("pull-request checks own validation", prompt)
+
+    def test_resume_prompt_skips_completed_specialists_and_validation(self) -> None:
+        profile = self.profile(Path("/tmp/profile"))
+        prompt = MODULE.agent_prompt(
+            Path("/tmp/workspace"),
+            {
+                "name": "example",
+                "base_branch": "main",
+                "validation_commands": [["pnpm", "run", "validate"]],
+            },
+            profile,
+            profile.slices[0],
+            MODULE.CyclePosition(cycle=3, index=0),
+            "code-maintain/test",
+            Path("/tmp/evidence.json"),
+            True,
+        )
+        self.assertIn("Do not rerun specialists or make new edits", prompt)
+        self.assertIn("run only `git diff --check`", prompt)
 
     def test_enabled_slice_filters_runtime_disabled_roles(self) -> None:
         item = self.profile(Path("/tmp/profile")).slices[0]
@@ -645,16 +690,27 @@ class MaintainerControllerTests(unittest.TestCase):
                             "summary": "Rejected an optimization without measurable work.",
                         }
                     ],
-                    "validation": ["The definitive validation command passed."],
-                    "verifier": "PASS — the final diff is bounded.",
                 }
+                message = (
+                    f"MAINTENANCE_REPORT_JSON: {json.dumps(report)}\n"
+                    'MANUAL_UI_CHECKS_JSON: ["Open settings and confirm the dialog appears."]'
+                )
                 return subprocess.CompletedProcess(
                     [],
                     0,
-                    (
-                        "validated\n"
-                        f"MAINTENANCE_REPORT_JSON: {json.dumps(report)}\n"
-                        'MANUAL_UI_CHECKS_JSON: ["Open settings and confirm the dialog appears."]'
+                    "\n".join(
+                        [
+                            '{"type":"thread.started","thread_id":"thread-test"}',
+                            json.dumps(
+                                {
+                                    "type": "item.completed",
+                                    "item": {
+                                        "type": "agent_message",
+                                        "text": message,
+                                    },
+                                }
+                            ),
+                        ]
                     ),
                     "",
                 )
@@ -721,8 +777,8 @@ class MaintainerControllerTests(unittest.TestCase):
             self.assertIn("without a canonical target", created_body["value"])
             self.assertIn("## Rejected findings", created_body["value"])
             self.assertIn("without measurable work", created_body["value"])
-            self.assertIn("## Reported validation", created_body["value"])
-            self.assertIn("**Independent verifier:** PASS", created_body["value"])
+            self.assertIn("## Pull-request validation", created_body["value"])
+            self.assertIn("did not run these commands locally", created_body["value"])
             self.assertIn(
                 "- [ ] Open settings and confirm the dialog appears.",
                 created_body["value"],
@@ -739,6 +795,7 @@ class MaintainerControllerTests(unittest.TestCase):
                 (fake_script_dir / "state/pending/example.json").read_text()
             )
             self.assertEqual(pending["slice"], "source")
+            self.assertEqual(pending["codex_session_id"], "thread-test")
             cycle = json.loads(
                 (fake_script_dir / "state/cycles/example.json").read_text()
             )

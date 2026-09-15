@@ -7,29 +7,27 @@ Autonomous code-maintenance agents powered by Codex or Claude Code. Scheduled ag
 ### code-maintainer
 
 Continuously audits versioned semantic codebase slices instead of relying on a
-path checkbox. Every slice routes five read-only specialists:
+path checkbox. Every slice routes four read-only specialists:
 
 1. **Reuse and simplification** — deletes proven duplication and unnecessary indirection.
-2. **Maintainability and organization** — enforces the project's canonical ownership, folder, filename, casing, and colocation policy.
-3. **Efficiency and performance** — finds reachable repeated, unbounded, or avoidably serial work.
-4. **Correctness and reliability** — proves and repairs violated behavior and lifecycle invariants.
-5. **Security hardening** — validates reachable authorization, tenant, input, trust-boundary, and data-exposure defects.
+2. **Efficiency and performance** — finds reachable repeated, unbounded, or avoidably serial work.
+3. **Correctness and reliability** — proves and repairs violated behavior and lifecycle invariants.
+4. **Security hardening** — validates reachable authorization, tenant, input, trust-boundary, and data-exposure defects.
 
 The editing orchestrator independently verifies every specialist finding,
-applies one bounded coherent change, runs focused and definitive validation,
-and uses a fresh verifier. The controller enforces protected paths, file and
+applies one bounded coherent change, and hands validation to the repository's
+pull-request checks. The controller enforces protected paths, file and
 diff budgets, commits the returned tree, pushes a `code-maintain/*` branch, and
 opens the PR. Each changed run must return a structured publication report;
 the PR records every specialist outcome, adopted changes, deferred and rejected
-findings, validation results, the independent verifier conclusion, and manual
-UI checks.
+findings, and manual UI checks. The controller persists the Codex thread ID and
+exact pushed head so failed PR checks can resume the same lifecycle.
 
 Project context uses progressive disclosure. Every specialist receives Exac's
-core invariants and current audited guidance; only the organization specialist
-receives the canonical source constitution, while the other roles receive
-their own ownership, performance, correctness, or security context. The
-controller fails closed when required hashed provider skills, Convex AI files,
-or official documentation are stale or fail integrity checks.
+core invariants and current audited guidance, plus its own routed ownership,
+performance, correctness, or security context. The controller fails closed
+when required hashed provider skills, Convex AI files, or official
+documentation are stale or fail integrity checks.
 
 Semantic slice state lives under `code-maintainer/state/cycles/`. A no-change
 audit advances immediately. A changed slice advances only after its PR merges;
@@ -51,14 +49,13 @@ Agents uses a simpler `scripts/setup-worktree.sh` that only creates an isolated
 `.venv`. Dirty interrupted `code-maintain/*` work is preserved for resume;
 unexpected workspaces are quarantined.
 
-The maintainer's organization role supersedes the retired standalone organizer.
 The shared `state/maintenance.lock` remains the single schedule-overlap guard.
 
 ### pr-reviewer
 
 Reviews an eligible pull request at an exact base/head pair after an authorized owner, member, or collaborator posts the exact comment `/review`. One Codex orchestrator spawns three specialist sub-agents for behavior/contracts, security/provider boundaries, and an independent simplification/hygiene pass. It reconciles their evidence, reads SHA-bound PR comments, reviews, and GitHub CI logs as untrusted leads, consults allowlisted current provider documentation and promoted official skills, and directly repairs every proven bounded issue in the touched behavioral slice. Repairs may address introduced defects, pre-existing defects, valid PR follow-ups, security hardening, performance, worthwhile code hygiene, or a reproducible validation-gate failure.
 
-The GitHub webhook subscribes only to `issue_comment`. The loopback-only receiver verifies `X-Hub-Signature-256`, requires a newly created comment on an open PR, authorizes the signed GitHub `OWNER`, `MEMBER`, or `COLLABORATOR` association, maps `/review` to only the reviewer and `/simplify` to only the PR simplifier, durably deduplicates the delivery, and processes jobs sequentially outside the HTTP request. Both commands fail closed before launching an agent unless GitHub CI is green for the exact PR head. Pushes, PR lifecycle events, CI events, reviews, ordinary comments, edited commands, comments on non-PR issues, and unauthorized commands never start a cycle. Dependabot remains excluded by policy.
+The GitHub webhook subscribes to `issue_comment` and `workflow_run`. The loopback-only receiver verifies `X-Hub-Signature-256`, authorizes explicit `/review` and `/simplify` commands, and routes completed maintainer CI runs only for exact pending `code-maintain/*` heads. Deliveries are durably deduplicated and processed sequentially outside the HTTP request. A failed maintainer check resumes the persisted Codex session with the complete failed-job log; a 30-minute reconciliation job covers missed webhook delivery. Dependabot remains excluded by policy.
 
 Every accepted command receives a best-effort 👀 reaction and one delivery-scoped progress comment. The shared progress reporter edits that comment at controller milestones and refreshes its timestamp every configured heartbeat interval instead of posting repeated replies. It records completion, a safety blocker, or an unexpected worker failure for both commands. Progress publishing is operational telemetry only: GitHub API or permission failures are logged and never change the underlying review or simplification result. The token used by `gh` needs `Issues: write` for the reaction; creating and updating the progress comment accepts `Issues: write` or `Pull requests: write`.
 
@@ -69,7 +66,7 @@ Authorized `/review` PR comment
   -> require green GitHub CI for the exact head
   -> exact-SHA PR controller
   -> behavior/contracts + security/provider + simplification/hygiene reviewer
-  -> agent-owned validation and fresh verifier
+  -> repository PR checks own validation
   -> lease-protected repair commit or idempotent PR summary
 
 Authorized `/simplify` PR comment
@@ -176,7 +173,7 @@ The two commands are intentionally independent. `/simplify` runs only the simpli
      --env ./pr-reviewer/.env
    ```
 
-   The hook subscribes only to `issue_comment`. Post `/review` for only a correctness/security review or `/simplify` for only a behavior-preserving simplification pass. Run either command after GitHub CI is green. A new authorized command intentionally starts a fresh exact-SHA job even if the same head was handled previously.
+   The hook subscribes to `issue_comment` and `workflow_run`. Post `/review` for only a correctness/security review or `/simplify` for only a behavior-preserving simplification pass. Completed `Code Quality` runs for pending `code-maintain/*` PRs are routed automatically to the same persisted maintenance session. A new authorized comment command intentionally starts a fresh exact-SHA review job even if the same head was handled previously.
 
    Configure `workspace_hooks` for repository-owned setup and cleanup. For Exac, both webhook commands run the canonical `scripts/setup-worktree.sh --convex-mode local` from the trusted source checkout against the exact-head review clone, then always run `scripts/cleanup-worktree.sh`. Each top-level command gets one private local Convex deployment; all specialists inside that command use it, and it is deleted when the command finishes.
 
@@ -268,14 +265,13 @@ Draft PRs remain ineligible even if someone comments `/review`. Cross-repository
 
 ### Agent-owned validation
 
-Every reviewer, PR simplifier, and scheduled maintainer owns one complete review, edit, validation, and verification lifecycle:
+Every reviewer and PR simplifier owns one complete review, edit, validation, and verification lifecycle. Scheduled maintainers stop after the bounded edit and final diff inspection; repository PR checks validate the published head:
 
-1. The controller binds an exact PR head or semantic maintenance slice and prepares its isolated workspace.
-2. The agent receives the repository validation commands and safe environment settings.
-3. The agent runs focused or full validation, diagnoses failures, fixes relevant defects, and iterates as often as useful in the same lifecycle.
-4. The agent distinguishes failures caused by its edits from unrelated, flaky, environmental, or already-green exact-head CI failures.
-5. The controller trusts that judgment, records the agent's evidence, and never starts a second validation or JSON-correction cycle.
-6. The controller commits only safe returned working-tree changes. PR-comment agents push with an exact-head lease; scheduled agents publish a new automation branch and PR.
+1. PR reviewers and simplifiers receive the repository validation commands and own their local validation lifecycle.
+2. Scheduled maintainers do not run tests, typechecks, linters, builds, or a separate verifier. They inspect the final diff and run only `git diff --check`.
+3. The maintainer controller publishes the bounded tree and persists its Codex thread ID with the exact PR head.
+4. GitHub PR checks validate that head. A signed completed-workflow event records success or resumes the same thread with the complete job log after failure.
+5. Repair pushes use an exact-head lease and are limited to two attempts by default. The periodic reconciler recovers missed webhook deliveries.
 
 If the failure is external, transient, ambiguous, or unsafe to repair, the reviewer reports the precise blocker instead of guessing.
 
@@ -287,7 +283,7 @@ If the failure is external, transient, ambiguous, or unsafe to repair, the revie
 - Keeps controller management tokens out of agent-visible worktrees and removes terminally clean linked worktrees
 - Persists semantic cycle and pending-PR state outside disposable workspaces
 - Requires private project environment files and ignored workspace symlinks
-- Gives the agent the repository's validation commands and declared runtime
+- Gives PR-review agents the validation commands; scheduled maintainers delegate them to GitHub checks
 - Keeps the last 30 log files, prunes older ones
 - Refuses PRs that alter trusted reviewer policy, workflow, or generated provider guidance; dependency manifests and lockfiles remain reviewable input but are immutable to the agents
 - Uses a dedicated clone and refuses dirty or overlapping review workspaces
@@ -367,6 +363,7 @@ tailscale funnel --https 8443 off
 - `code-maintainer/state/workspaces/` — isolated maintainer clones or linked worktrees
 - `pr-reviewer/logs/webhook.log` — receiver health and HTTP status lines; request bodies and signatures are never logged
 - `pr-reviewer/logs/webhook-worker.log` — queued review controller output
+- `code-maintainer/logs/ci_repair_*.log` — exact-head same-session CI repair output
 - `pr-reviewer/logs/reconcile.log` — outbound-notification retry output
 - `pr-reviewer/logs/context-refresh.log` — weekly provider-skill, documentation, and Convex AI-files refresh
 - `pr-reviewer/state/webhook-queue/` — pending and in-progress signed deliveries

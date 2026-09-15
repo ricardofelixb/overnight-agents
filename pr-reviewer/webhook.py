@@ -165,30 +165,41 @@ class DeliveryQueue:
                     "Starting worker",
                     "The queued command is starting in the PR controller.",
                 )
-            command = [
-                sys.executable,
-                str(self.reviewer),
-                "--config",
-                str(self.config_path),
-                "--project",
-                str(job["project"]),
-                "--pr",
-                str(job["pr_number"]),
-            ]
-            if self.apply:
-                command.append("--apply")
-            if job.get("force") is True:
-                command.append("--force")
-            command.extend(["--operation", str(job.get("operation", "review"))])
-            if progress is not None:
-                command.extend(
-                    [
-                        "--progress-delivery",
-                        str(job["delivery"]),
-                        "--command-comment-id",
-                        str(job["command_comment_id"]),
-                    ]
-                )
+            if job.get("operation") == "maintenance_ci":
+                command = [
+                    sys.executable,
+                    str(self.reviewer.parent.parent / "code-maintainer/ci_repair.py"),
+                    "--project", str(job["project"]),
+                    "--pr", str(job["pr_number"]),
+                    "--run-id", str(job["run_id"]),
+                    "--head-sha", str(job["head_sha"]),
+                    "--conclusion", str(job["conclusion"]),
+                ]
+            else:
+                command = [
+                    sys.executable,
+                    str(self.reviewer),
+                    "--config",
+                    str(self.config_path),
+                    "--project",
+                    str(job["project"]),
+                    "--pr",
+                    str(job["pr_number"]),
+                ]
+                if self.apply:
+                    command.append("--apply")
+                if job.get("force") is True:
+                    command.append("--force")
+                command.extend(["--operation", str(job.get("operation", "review"))])
+                if progress is not None:
+                    command.extend(
+                        [
+                            "--progress-delivery",
+                            str(job["delivery"]),
+                            "--command-comment-id",
+                            str(job["command_comment_id"]),
+                        ]
+                    )
             self.log_path.parent.mkdir(parents=True, exist_ok=True)
             with self.log_path.open("a") as stream:
                 stream.write(
@@ -267,6 +278,8 @@ class WebhookApplication:
     def handle(self, event: str, delivery: str, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         if event == "ping":
             return 200, {"status": "pong"}
+        if event == "workflow_run":
+            return self._handle_workflow_run(delivery, payload)
         if event != "issue_comment":
             return 202, {"status": "ignored", "reason": "event"}
         if payload.get("action") != "created":
@@ -326,6 +339,61 @@ class WebhookApplication:
         created = self.queue.enqueue(delivery, job)
         if created:
             self.queue.acknowledge(job)
+        return 202, {"status": "queued" if created else "duplicate"}
+
+    def _handle_workflow_run(
+        self, delivery: str, payload: dict[str, Any]
+    ) -> tuple[int, dict[str, Any]]:
+        if payload.get("action") != "completed":
+            return 202, {"status": "ignored", "reason": "action"}
+        repository = ((payload.get("repository") or {}).get("full_name") or "").lower()
+        project = self.projects.get(repository)
+        if project is None:
+            return 202, {"status": "ignored", "reason": "repository"}
+        run = payload.get("workflow_run") or {}
+        if run.get("name") != project.get("maintenance_workflow_name", "Code Quality"):
+            return 202, {"status": "ignored", "reason": "workflow"}
+        branch = run.get("head_branch")
+        if not isinstance(branch, str) or not branch.startswith("code-maintain/"):
+            return 202, {"status": "ignored", "reason": "branch"}
+        conclusion = run.get("conclusion")
+        if conclusion not in {"success", "failure"}:
+            return 202, {"status": "ignored", "reason": "conclusion"}
+        pull_requests = run.get("pull_requests")
+        number = (
+            pull_requests[0].get("number")
+            if isinstance(pull_requests, list)
+            and len(pull_requests) == 1
+            and isinstance(pull_requests[0], dict)
+            else None
+        )
+        run_id = run.get("id")
+        head_sha = run.get("head_sha")
+        if (
+            not isinstance(number, int)
+            or number <= 0
+            or not isinstance(run_id, int)
+            or run_id <= 0
+            or not isinstance(head_sha, str)
+            or not re.fullmatch(r"[0-9a-f]{40}", head_sha)
+        ):
+            raise WebhookFailure("workflow run identity is invalid")
+        job = {
+            "version": 2,
+            "delivery": delivery,
+            "received_at": utc_now(),
+            "project": project["name"],
+            "repository": project["repository"],
+            "pr_number": number,
+            "action": f"workflow_run:{conclusion}",
+            "operation": "maintenance_ci",
+            "run_id": run_id,
+            "head_sha": head_sha,
+            "head_branch": branch,
+            "conclusion": conclusion,
+            "progress": {"enabled": False},
+        }
+        created = self.queue.enqueue(delivery, job)
         return 202, {"status": "queued" if created else "duplicate"}
 
 

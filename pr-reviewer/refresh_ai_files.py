@@ -84,7 +84,7 @@ def atomic_json(path: Path, value: dict[str, Any]) -> None:
 
 def is_managed_ai_file(path: str) -> bool:
     normalized = Path(path).as_posix()
-    if normalized in {"AGENTS.md", "CLAUDE.md"}:
+    if normalized in {"AGENTS.md", "CLAUDE.md", "skills-lock.json"}:
         return True
     if normalized.startswith("convex/_generated/ai/"):
         return True
@@ -130,7 +130,12 @@ def changed_paths(workspace: Path) -> list[str]:
 
 def managed_snapshot_files(workspace: Path) -> list[Path]:
     candidates: list[Path] = []
-    for relative in (Path("AGENTS.md"), Path("CLAUDE.md"), Path("convex/_generated/ai")):
+    for relative in (
+        Path("AGENTS.md"),
+        Path("CLAUDE.md"),
+        Path("skills-lock.json"),
+        Path("convex/_generated/ai"),
+    ):
         path = workspace / relative
         if path.is_file():
             candidates.append(path)

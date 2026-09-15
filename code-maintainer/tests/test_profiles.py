@@ -41,7 +41,7 @@ class ProjectProfileTests(unittest.TestCase):
             )
         self.assertTrue(all(set(item.roles) == ROLE_SET for item in profile.slices))
         self.assertIn("calendar", {item.identifier for item in profile.slices})
-        self.assertIn("collection-agents", {item.identifier for item in profile.slices})
+        self.assertIn("payment-portal", {item.identifier for item in profile.slices})
         workos_slices = {
             item.identifier: item
             for item in profile.slices

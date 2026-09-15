@@ -95,6 +95,20 @@ class WebhookTests(unittest.TestCase):
             },
         }
 
+    def workflow_run_payload(self, conclusion: str = "failure") -> dict:
+        return {
+            "action": "completed",
+            "repository": {"full_name": "trusted/example"},
+            "workflow_run": {
+                "id": 123,
+                "name": "Code Quality",
+                "head_branch": "code-maintain/2026-09-03",
+                "head_sha": "a" * 40,
+                "conclusion": conclusion,
+                "pull_requests": [{"number": 17}],
+            },
+        }
+
     def test_signature_validation_is_exact(self) -> None:
         body = b'{"zen":"safe"}'
         signature = "sha256=" + hmac.new(b"secret", body, hashlib.sha256).hexdigest()
@@ -155,6 +169,23 @@ class WebhookTests(unittest.TestCase):
         self.assertEqual(unauthorized, {"status": "ignored", "reason": "authorization"})
         self.assertEqual(queue.jobs, {})
 
+    def test_completed_maintenance_workflow_is_queued(self) -> None:
+        application, queue = self.application()
+        status, body = application.handle(
+            "workflow_run", "delivery-ci", self.workflow_run_payload()
+        )
+        self.assertEqual((status, body["status"]), (202, "queued"))
+        self.assertEqual(queue.jobs["delivery-ci"]["operation"], "maintenance_ci")
+        self.assertEqual(queue.jobs["delivery-ci"]["head_sha"], "a" * 40)
+
+    def test_unrelated_workflow_run_is_ignored(self) -> None:
+        application, queue = self.application()
+        payload = self.workflow_run_payload()
+        payload["workflow_run"]["head_branch"] = "feature/example"
+        _, body = application.handle("workflow_run", "delivery-ci", payload)
+        self.assertEqual(body, {"status": "ignored", "reason": "branch"})
+        self.assertEqual(queue.jobs, {})
+
     def test_interrupted_delivery_is_recovered(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -205,6 +236,35 @@ class WebhookTests(unittest.TestCase):
             self.assertEqual(progress.acknowledged, 1)
             self.assertEqual(progress.phases, ["Starting worker"])
 
+    def test_worker_routes_maintenance_ci_to_resume_controller(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            queue = DeliveryQueue(
+                root, ROOT / "controller.py", ROOT / "config.json", True, root / "worker.log"
+            )
+            job = {
+                "version": 2,
+                "delivery": "delivery-ci",
+                "project": "example",
+                "repository": "trusted/example",
+                "pr_number": 17,
+                "action": "workflow_run:failure",
+                "operation": "maintenance_ci",
+                "run_id": 123,
+                "head_sha": "a" * 40,
+                "conclusion": "failure",
+                "progress": {"enabled": False},
+            }
+            self.assertTrue(queue.enqueue("delivery-ci", job))
+            with mock.patch(
+                "webhook.subprocess.run", return_value=mock.Mock(returncode=0)
+            ) as execute:
+                queue._run_job(queue.pending / "delivery-ci.json")
+            command = execute.call_args.args[0]
+            self.assertTrue(command[1].endswith("code-maintainer/ci_repair.py"))
+            self.assertIn("--run-id", command)
+            self.assertIn("123", command)
+
     def test_env_setup_preserves_existing_values_and_is_private(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             env = Path(temporary) / ".env"
@@ -217,13 +277,13 @@ class WebhookTests(unittest.TestCase):
             self.assertEqual(env.stat().st_mode & 0o777, 0o600)
             self.assertNotEqual(values["GITHUB_WEBHOOK_SECRET"], "")
 
-    def test_github_hook_uses_only_issue_comments(self) -> None:
+    def test_github_hook_uses_comments_and_workflow_runs(self) -> None:
         with mock.patch("configure_webhook.gh", return_value=[]), mock.patch(
             "configure_webhook.gh_with_payload",
             return_value={
                 "id": 42,
                 "active": True,
-                "events": ["issue_comment"],
+                "events": ["issue_comment", "workflow_run"],
                 "config": {"url": "https://mini.example.ts.net:8443/github-webhook"},
             },
         ) as send:
@@ -235,7 +295,7 @@ class WebhookTests(unittest.TestCase):
         payload = send.call_args.args[2]
         self.assertEqual(
             payload["events"],
-            ["issue_comment"],
+            ["issue_comment", "workflow_run"],
         )
         self.assertEqual(payload["config"]["secret"], "private-secret")
         self.assertEqual(result["action"], "created")

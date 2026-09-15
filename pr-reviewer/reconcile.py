@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
 from pathlib import Path
 
@@ -30,6 +31,18 @@ def main() -> int:
                 print(f"Telegram outbox retry: delivered={delivered} pending_failures={failed}")
         except NotificationFailure:
             print("Telegram outbox retry unavailable; pending events were preserved", file=sys.stderr)
+    maintainer_reconcile = Path(__file__).resolve().parent.parent / "code-maintainer/ci_repair.py"
+    result = subprocess.run(
+        [sys.executable, str(maintainer_reconcile), "--reconcile"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    if result.stdout:
+        print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
+    if result.returncode != 0:
+        print("Maintenance CI reconciliation failed; pending state was preserved", file=sys.stderr)
     return 0
 
 

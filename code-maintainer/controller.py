@@ -8,6 +8,7 @@ import fcntl
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from dataclasses import replace
@@ -24,7 +25,11 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from automation import clones, completion_reporter, pull_requests, runtime, worktrees
-from context_evidence import ContextFailure, prepare_context_evidence
+from context_evidence import (
+    ContextFailure,
+    ensure_provider_context,
+    prepare_context_evidence,
+)
 from cycles import (
     CycleFailure,
     CyclePosition,
@@ -52,6 +57,13 @@ from reporting import (
     parse_maintenance_report,
 )
 
+MAINTAINER_PROCESS_GUIDANCE = """
+Shared process rules:
+- Do not run tests, typechecks, linters, builds, or repository validation commands.
+- Do not start detached or background commands.
+- Inspect the final diff and run only `git diff --check`; GitHub PR checks own validation.
+""".strip()
+
 
 SKILL_ROOT = SCRIPT_DIR / "skills" / "code-maintainer"
 BRANCH_PREFIX = "code-maintain"
@@ -72,6 +84,26 @@ PROTECTED_PATTERNS = (
 
 class MaintainerFailure(RuntimeError):
     pass
+
+
+def ensure_disk_capacity(config: dict[str, Any], stream: TextIO) -> None:
+    """Prune recoverable package cache and fail before setup when disk is tight."""
+
+    minimum = int(config.get("minimum_free_bytes", 1024**3))
+    free = shutil.disk_usage(REPO_ROOT).free
+    if free >= minimum:
+        return
+    stream.write(
+        f"Free disk is {free} bytes; pruning the pnpm store before maintenance.\n"
+    )
+    stream.flush()
+    runtime.run(["pnpm", "store", "prune"], stream=stream)
+    free = shutil.disk_usage(REPO_ROOT).free
+    if free < minimum:
+        raise MaintainerFailure(
+            f"insufficient disk before maintenance: {free} bytes free, "
+            f"{minimum} required"
+        )
 
 
 def load_config(path: Path) -> dict[str, Any]:
@@ -228,8 +260,10 @@ def agent_prompt(
     resuming: bool,
 ) -> str:
     resume = (
-        "\nThis is a resumed interrupted run. Inspect and continue only the "
-        "existing correct working-tree changes before making new edits.\n"
+        "\nThis is a resumed interrupted run whose specialists and bounded edits "
+        "already completed. Do not rerun specialists or make new edits. Inspect "
+        "the existing working-tree diff, reconcile its evidence, run only "
+        "`git diff --check`, and return the required report immediately.\n"
         if resuming
         else ""
     )
@@ -244,7 +278,7 @@ Selected semantic slice:
 {json.dumps(item.prompt_payload(), indent=2, sort_keys=True)}
 
 Audited current skills and official-documentation evidence: {context_evidence}
-Repository validation commands: {json.dumps(project['validation_commands'])}
+Pull-request validation commands (context only; do not run): {json.dumps(project['validation_commands'])}
 
 Read the skill, repository instructions, project manifest, shared context, and
 the exact role-specific references routed by the manifest. Resolve selectors
@@ -252,8 +286,9 @@ against the current repository before drawing conclusions; search terms are
 discovery hints, never authorization to edit unrelated code. Run every
 specialist role listed in the slice, in bounded concurrent batches if provider
 limits prevent one batch. The specialists are read-only. You alone reconcile
-evidence, make bounded edits, run focused checks and definitive validation, and
-run the fresh verifier.
+evidence, make bounded edits, and inspect the final diff. Do not run tests,
+typechecks, linters, builds, validation commands, or a separate verifier; the
+repository's pull-request checks own validation after publication.
 
 Never commit, push, create a PR, alter Git configuration, edit maintenance
 cycle state, or modify trusted agent policy. The controller owns publication
@@ -423,7 +458,9 @@ def publish(
                 f"## Maintenance slice\n\nCycle {position.cycle}, semantic slice "
                 f"`{item.identifier}`: {item.title}.\n\n"
                 f"{maintenance_report_sections(report)}\n\n"
-                "## Definitive validation command\n\n"
+                "## Pull-request validation\n\n"
+                "Validation is delegated to the repository's checks after this PR "
+                "is opened. The maintainer did not run these commands locally:\n\n"
                 f"```text\n{validation}\n```\n\n"
                 f"{ui_section}"
             ),
@@ -447,8 +484,28 @@ def execute_project(
 ) -> str:
     if completion is not None:
         completion["repo"] = project["repository"]
+    if apply:
+        ensure_disk_capacity(config, stream)
     profile = profile_for(project)
     identifiers = slice_ids(profile)
+    if apply:
+        context_config = dict(config)
+        context_config["context"] = resolve_context(config, project)
+        domains = tuple(
+            sorted(
+                {
+                    domain
+                    for maintenance_slice in profile.slices
+                    for domain in maintenance_slice.guidance_domains
+                }
+            )
+        )
+        ensure_provider_context(
+            context_config,
+            project["name"],
+            domains,
+            stream,
+        )
     prepared = prepare_workspace(config, project, stream)
     workspace = Path(str(prepared["workspace"]))
     resuming = bool(prepared["resuming"])
@@ -534,28 +591,30 @@ def execute_project(
                 runtime.run(["uv", "sync"], cwd=workspace, stream=stream)
             runtime.git(workspace, "checkout", "-b", branch, stream=stream)
         elif isinstance(workspace_config, dict):
-            token = workspace_config.get("management_token_file")
-            worktrees.run_setup_hook_with_rollback(
-                source_path=Path(project["source_path"]),
-                workspace=workspace,
-                branch_prefix=BRANCH_PREFIX,
-                setup_command=workspace_config["setup_command"],
-                cleanup_command=workspace_config["cleanup_command"],
-                management_token_file=Path(token) if token else None,
-                resuming=True,
-                stream=stream,
+            stream.write(
+                "Resuming preserved worktree without rerunning dependency or "
+                "local-service setup.\n"
             )
-            hook_active = True
+            stream.flush()
 
-        evidence_config = dict(config)
-        evidence_config["context"] = resolve_context(config, project)
-        evidence = prepare_context_evidence(
-            evidence_config,
-            project["name"],
-            item.guidance_domains,
-            workspace,
-            stream,
-        )
+        if resuming:
+            evidence = SCRIPT_DIR / "state" / "context" / project["name"] / "evidence.json"
+            if not evidence.is_file():
+                raise MaintainerFailure(
+                    "preserved worktree cannot resume without its audited context evidence"
+                )
+            stream.write(f"Reusing audited context evidence: {evidence}\n")
+            stream.flush()
+        else:
+            evidence_config = dict(config)
+            evidence_config["context"] = resolve_context(config, project)
+            evidence = prepare_context_evidence(
+                evidence_config,
+                project["name"],
+                item.guidance_domains,
+                workspace,
+                stream,
+            )
         git_config = runtime.protected_repository_config(workspace)
         original_head = runtime.git(workspace, "rev-parse", "HEAD").stdout.strip()
         agent = runtime.run_agent(
@@ -574,11 +633,17 @@ def execute_project(
             stream,
             environment_file=SCRIPT_DIR / ".env",
             report_field=REPORT_FIELD,
+            persist_session=config.get("provider", "codex") == "codex",
+            process_guidance=MAINTAINER_PROCESS_GUIDANCE,
         )
         if agent.returncode != 0:
             raise MaintainerFailure(
                 f"maintenance agent exited with code {agent.returncode}"
             )
+        session_id = ""
+        agent_output = agent.stdout
+        if config.get("provider", "codex") == "codex":
+            session_id, agent_output = runtime.codex_session(agent.stdout)
         if runtime.protected_repository_config(workspace) != git_config:
             raise MaintainerFailure("maintenance agent changed local Git configuration")
         if runtime.git(workspace, "rev-parse", "HEAD").stdout.strip() != original_head:
@@ -609,7 +674,7 @@ def execute_project(
             item,
             position,
             branch,
-            agent.stdout,
+            agent_output,
             stream,
         )
         atomic_json(
@@ -624,6 +689,9 @@ def execute_project(
                 "url": url,
                 "branch": branch,
                 "created_at": runtime.now_iso(),
+                "head_sha": runtime.git(workspace, "rev-parse", "HEAD").stdout.strip(),
+                "codex_session_id": session_id,
+                "ci_repair_attempts": 0,
             },
         )
         terminal_cleanup = True

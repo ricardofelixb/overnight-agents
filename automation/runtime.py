@@ -205,13 +205,17 @@ def agent_command(
     workspace: Path,
     prompt: str,
     report_field: str | None = None,
+    *,
+    persist_session: bool = False,
 ) -> list[str]:
     provider = config.get("provider", "codex")
     if provider == "codex":
-        return [
+        command = [
             "codex",
             "exec",
-            "--ephemeral",
+            "--json" if persist_session else "--ephemeral",
+        ]
+        return command + [
             "--ignore-user-config",
             "--enable",
             "multi_agent",
@@ -248,14 +252,82 @@ def run_agent(
     *,
     environment_file: Path | None = None,
     report_field: str | None = None,
+    persist_session: bool = False,
+    process_guidance: str = AGENT_PROCESS_GUIDANCE,
 ) -> subprocess.CompletedProcess[str]:
+    full_prompt = prompt.rstrip()
+    if process_guidance:
+        full_prompt += f"\n{process_guidance}"
     return run(
         agent_command(
             config,
             workspace,
-            f"{prompt.rstrip()}\n{AGENT_PROCESS_GUIDANCE}",
+            full_prompt,
             report_field,
+            persist_session=persist_session,
         ),
+        cwd=workspace,
+        env=agent_environment(workspace, environment_file),
+        check=False,
+        timeout=int(config.get("agent_timeout_seconds", 7200)),
+        stream=stream,
+    )
+
+
+def codex_session(output: str) -> tuple[str, str]:
+    """Extract a persisted Codex thread id and assistant text from JSONL."""
+
+    thread_id = ""
+    messages: list[str] = []
+    for line in output.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if event.get("type") == "thread.started":
+            value = event.get("thread_id")
+            if isinstance(value, str):
+                thread_id = value
+        item = event.get("item")
+        if (
+            event.get("type") == "item.completed"
+            and isinstance(item, dict)
+            and item.get("type") == "agent_message"
+            and isinstance(item.get("text"), str)
+        ):
+            messages.append(item["text"])
+    if not thread_id:
+        raise RuntimeFailure("Codex JSONL output did not contain a persisted thread id")
+    if not messages:
+        raise RuntimeFailure("Codex JSONL output did not contain an assistant message")
+    return thread_id, "\n".join(messages)
+
+
+def resume_codex_session(
+    config: dict[str, Any],
+    workspace: Path,
+    session_id: str,
+    prompt: str,
+    stream: TextIO,
+    *,
+    environment_file: Path | None = None,
+) -> subprocess.CompletedProcess[str]:
+    command = [
+        "codex",
+        "exec",
+        "resume",
+        "--json",
+        "--ignore-user-config",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "--model",
+        str(config.get("codex_model", "gpt-5.6-terra")),
+        "--config",
+        f"model_reasoning_effort={json.dumps(config.get('codex_reasoning_effort', 'medium'))}",
+        session_id,
+        prompt,
+    ]
+    return run(
+        command,
         cwd=workspace,
         env=agent_environment(workspace, environment_file),
         check=False,

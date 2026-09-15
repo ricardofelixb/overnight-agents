@@ -87,7 +87,7 @@ Security and correctness fixes may intentionally reject invalid or unauthorized
 behavior, but must preserve valid behavior and include regression proof.
 Organization must not create abstractions solely to make a tree symmetrical.
 
-## Edit and prove
+## Edit and hand off
 
 - Preserve tracked history for moves. Update all imports and references, then
   prove old paths and obsolete internal names are absent.
@@ -95,19 +95,15 @@ Organization must not create abstractions solely to make a tree symmetrical.
   aliases, or fallback paths.
 - Add or update focused behavioral tests for corrected bugs and
   vulnerabilities. Do not rewrite tests to bless changed behavior.
-- Run focused checks while editing.
-- Run every controller-supplied definitive validation command in the foreground
-  and inspect its exit status and complete result.
-- Spawn one fresh read-only verifier with the original slice, adopted findings,
-  original diff, and final diff. Correct or revert every proven issue.
+- Do not run tests, typechecks, linters, builds, repository validation commands,
+  or a separate verifier. The repository's pull-request checks own validation
+  and ready-for-review verification after publication.
 - Inspect the final diff and run `git diff --check`.
 
 Never commit, push, create a PR, edit controller state, change Git
-configuration, or expose credentials. Never finish with validation or a
-verifier pending.
+configuration, or expose credentials.
 
 Report every selected role's outcome, adopted changes, rejected findings,
-deferred boundaries, test and validation results, verifier conclusion, and
-manual UI checks in the controller-required structured fields. These fields
+deferred boundaries, and manual UI checks in the controller-required structured fields. These fields
 are the source of truth for the pull-request description, so keep them concise,
 specific, and evidence-backed. Leave changes uncommitted for the controller.

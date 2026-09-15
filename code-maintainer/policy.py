@@ -27,6 +27,7 @@ CONTEXT_PATH_FIELDS = (
     "docs_refresh_script",
     "docs_cache",
 )
+CONTEXT_OPTIONAL_PATH_FIELDS = ("provider_refresh_script",)
 CONTEXT_INTEGER_FIELDS = (
     ("skill_max_age_days", (1, 31), 8),
     ("ai_files_max_age_days", (1, 31), 8),
@@ -35,6 +36,7 @@ CONTEXT_INTEGER_FIELDS = (
 )
 CONTEXT_KEYS = frozenset(
     CONTEXT_PATH_FIELDS
+    + CONTEXT_OPTIONAL_PATH_FIELDS
     + tuple(field for field, _bounds, _default in CONTEXT_INTEGER_FIELDS)
 )
 
@@ -97,6 +99,24 @@ def validate_config(config: dict[str, Any]) -> None:
         1_000,
         5_000_000,
         "max_diff_bytes",
+    )
+    _bounded_integer(
+        config.get("minimum_free_bytes", 1024**3),
+        1024**3,
+        100 * 1024**3,
+        "minimum_free_bytes",
+    )
+    _bounded_integer(
+        config.get("ci_repair_max_attempts", 2),
+        0,
+        5,
+        "ci_repair_max_attempts",
+    )
+    _bounded_integer(
+        config.get("max_ci_log_bytes", 5_000_000),
+        10_000,
+        20_000_000,
+        "max_ci_log_bytes",
     )
     _validate_slice_repair(config.get("slice_repair"))
 
@@ -232,6 +252,9 @@ def _validate_context(context: Any, label: str, *, complete: bool) -> None:
         if complete or field in context:
             if not _path(context.get(field)):
                 raise ConfigurationFailure(f"{label} requires {field}")
+    for field in CONTEXT_OPTIONAL_PATH_FIELDS:
+        if field in context and not _path(context.get(field)):
+            raise ConfigurationFailure(f"{label} requires {field}")
     for field, bounds, default in CONTEXT_INTEGER_FIELDS:
         if complete:
             _bounded_integer(context.get(field, default), bounds[0], bounds[1], field)

@@ -18,7 +18,6 @@
       "title": "Catalog and source imports",
       "selectors": [
         "convex/imports/",
-        "convex/mcp/tools/imports.ts",
         "src/components/imports/",
         "src/components/settings/sections/imports/",
         "scripts/imports/",
@@ -75,9 +74,6 @@
       "selectors": [
         "convex/fiscal/invoices/",
         "convex/entities/employees/",
-        "convex/api/v1/invoices.ts",
-        "convex/api/v1/payroll.ts",
-        "convex/api/v1/withholdings.ts",
         "convex/mcp/tools/invoices.ts",
         "convex/mcp/tools/employees.ts",
         "src/components/fiscal/invoices/",
@@ -99,7 +95,6 @@
       "title": "Sales and receipts",
       "selectors": [
         "convex/operations/sales/",
-        "convex/api/v1/receipts.ts",
         "convex/mcp/tools/receipts.ts",
         "src/components/operations/sales/",
         "src/app/(dashboard)/caja/",
@@ -120,8 +115,6 @@
         "convex/operations/sales/fieldValues.ts",
         "convex/operations/sales/fieldReadContract.ts",
         "convex/operations/sales/fieldWriteContract.ts",
-        "convex/api/v1/locations.ts",
-        "convex/api/v1/receiptFields.ts",
         "src/components/catalog/locations/",
         "src/components/operations/sales/fields/",
         "src/app/(dashboard)/ubicaciones/",
@@ -139,7 +132,6 @@
       "title": "Sales refunds",
       "selectors": [
         "convex/operations/sales/refunds/",
-        "convex/api/v1/receiptRefunds.ts",
         "convex/documents/projections/receiptRefund.ts",
         "src/components/operations/sales/dialogs/ReceiptRefundDialog.tsx",
         "src/components/operations/sales/dialogs/ReceiptRefundAllocations.tsx",
@@ -199,21 +191,6 @@
       ]
     },
     {
-      "id": "collection-agents",
-      "title": "Collection agents and agent runtime",
-      "selectors": [
-        "convex/agents/",
-        "src/components/agents/",
-        "src/app/(dashboard)/agentes/",
-        "tests/agents/"
-      ],
-      "search_terms": [
-        "collection agent",
-        "cobranza",
-        "agent runtime"
-      ]
-    },
-    {
       "id": "payables",
       "title": "Payables and supplier balances",
       "selectors": [
@@ -241,8 +218,6 @@
       "title": "Expenses and expense categories",
       "selectors": [
         "convex/operations/expenses/",
-        "convex/api/v1/expenses.ts",
-        "convex/api/v1/expenseCategories.ts",
         "convex/mcp/tools/expenses.ts",
         "src/components/operations/expenses/",
         "src/app/(dashboard)/caja/",
@@ -325,7 +300,6 @@
         "convex/members/",
         "convex/lib/workosWidgets.ts",
         "convex/api/v1/members.ts",
-        "convex/mcp/tools/members.ts",
         "src/components/settings/",
         "src/contexts/WorkOSMembersContext.tsx",
         "src/hooks/useWorkosMembers.ts",
@@ -384,7 +358,6 @@
         "convex/fiscal/sat/fiscal/",
         "convex/analytics/",
         "convex/documents/projections/",
-        "convex/api/v1/declarations.ts",
         "convex/api/v1/reports.ts",
         "convex/mcp/tools/reports.ts",
         "src/components/fiscal/declarations/",
@@ -411,8 +384,6 @@
         "convex/organizations/mutations/",
         "convex/api/v1/certificates.ts",
         "convex/api/v1/taxProfile.ts",
-        "convex/mcp/tools/certificates.ts",
-        "convex/mcp/tools/taxProfile.ts",
         "src/components/settings/sections/certificates/",
         "src/components/settings/sections/synchronization/",
         "tests/credentials/",
@@ -431,8 +402,6 @@
       "title": "Calendar events and calendar UI",
       "selectors": [
         "convex/operations/calendar/",
-        "convex/api/v1/calendarEvents.ts",
-        "convex/mcp/tools/calendar.ts",
         "src/components/operations/calendar/",
         "src/app/(dashboard)/calendario/",
         "tests/calendar/"
@@ -482,8 +451,6 @@
       "title": "Financial integrations and providers",
       "selectors": [
         "convex/integrations/financial/",
-        "convex/api/v1/integrations.ts",
-        "convex/mcp/tools/integrations.ts",
         "src/components/integrations/financial/",
         "tests/integrations/financial/"
       ],
@@ -522,7 +489,6 @@
         "convex/programmatic/",
         "convex/api/keys.ts",
         "convex/api/v1/apiKeys.ts",
-        "convex/mcp/tools/apiKeys.ts",
         "src/components/settings/",
         "tests/api/",
         "tests/programmatic/"
@@ -578,10 +544,8 @@
       "selectors": [
         "convex/documents/",
         "convex/files/",
-        "convex/api/v1/documentResources.ts",
         "convex/api/v1/files.ts",
         "convex/mcp/tools/documents.ts",
-        "convex/mcp/tools/files.ts",
         "tests/documents/",
         "tests/files/"
       ],

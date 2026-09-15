@@ -8,11 +8,13 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from context_evidence import (
     ContextFailure,
+    ensure_provider_context,
     prepare_context_evidence,
     validate_ai_files,
     validate_official_docs_manifest,
@@ -72,11 +74,17 @@ class ContextEvidenceTests(unittest.TestCase):
             guidance.parent.mkdir(parents=True)
             guidance.write_text("# Current\n")
             content = guidance.read_bytes()
+            release_guidance = (
+                root
+                / "ai-files/exac/releases/revision/convex/_generated/ai/guidelines.md"
+            )
+            release_guidance.parent.mkdir(parents=True)
+            release_guidance.write_bytes(content)
             manifest = {
                 "version": 1,
                 "project": "exac",
                 "refreshed_at": datetime.now(timezone.utc).isoformat(),
-                "release_path": str(root / "release"),
+                "release_path": str(root / "ai-files/exac/releases/revision"),
                 "base_sha": "a" * 40,
                 "files": {
                     "convex/_generated/ai/guidelines.md": {
@@ -86,13 +94,15 @@ class ContextEvidenceTests(unittest.TestCase):
                 },
             }
             path = root / "ai-files/exac/manifest.json"
-            path.parent.mkdir(parents=True)
+            path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(manifest))
             self.assertEqual(
                 validate_ai_files(self.config(root), "exac", workspace)["project"],
                 "exac",
             )
-            guidance.write_text("# Stale\n")
+            guidance.write_text("# Repository copy may be stale\n")
+            validate_ai_files(self.config(root), "exac", workspace)
+            release_guidance.write_text("# Tampered\n")
             with self.assertRaisesRegex(ContextFailure, "differs"):
                 validate_ai_files(self.config(root), "exac", workspace)
 
@@ -150,6 +160,41 @@ class ContextEvidenceTests(unittest.TestCase):
                 prepare_context_evidence(
                     config, "agents", ("react",), root, stream=io.StringIO()
                 )
+
+    def test_stale_provider_context_refreshes_once_before_revalidation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = {
+                "_config_dir": str(root),
+                "context": {"provider_refresh_script": "refresh_context.py"},
+            }
+            stream = io.StringIO()
+            with (
+                mock.patch(
+                    "context_evidence.validate_skill_lock",
+                    side_effect=[ContextFailure("audited skill is stale"), {}],
+                ) as validate_skills,
+                mock.patch(
+                    "context_evidence.validate_ai_files_freshness"
+                ) as validate_ai_files_freshness,
+                mock.patch("context_evidence.runtime.run") as run,
+            ):
+                ensure_provider_context(
+                    config, "exac", ("convex",), stream
+                )
+
+            self.assertEqual(validate_skills.call_count, 2)
+            validate_ai_files_freshness.assert_called_once_with(config, "exac")
+            run.assert_called_once_with(
+                [
+                    sys.executable,
+                    str((root / "refresh_context.py").resolve()),
+                    "--project",
+                    "exac",
+                ],
+                stream=stream,
+            )
+            self.assertIn("requires refresh", stream.getvalue())
 
 
 if __name__ == "__main__":

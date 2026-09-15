@@ -36,6 +36,7 @@ class ConvexAiFilesRefreshTests(unittest.TestCase):
         allowed = [
             "AGENTS.md",
             "CLAUDE.md",
+            "skills-lock.json",
             "convex/_generated/ai/guidelines.md",
             ".agents/skills/convex/SKILL.md",
             ".claude/skills/convex-migration-helper/SKILL.md",
@@ -57,10 +58,12 @@ class ConvexAiFilesRefreshTests(unittest.TestCase):
             skill = workspace / ".agents" / "skills" / "convex" / "SKILL.md"
             skill.parent.mkdir(parents=True)
             skill.write_text("---\nname: convex\ndescription: Route\n---\n")
+            (workspace / "skills-lock.json").write_text("{}\n")
             (workspace / "package.json").write_text("{}\n")
             files = managed_snapshot_files(workspace)
             digest, manifest = audit_and_hash(workspace, files)
             self.assertIn("convex/_generated/ai/guidelines.md", manifest)
+            self.assertIn("skills-lock.json", manifest)
             manifest_path = publish_snapshot(
                 workspace,
                 root / "state",
@@ -74,6 +77,7 @@ class ConvexAiFilesRefreshTests(unittest.TestCase):
             self.assertTrue(manifest_path.is_file())
             release = root / "state" / "ai-files" / "example" / "releases" / digest
             self.assertTrue((release / ".agents" / "skills" / "convex" / "SKILL.md").is_file())
+            self.assertTrue((release / "skills-lock.json").is_file())
             self.assertFalse((release / "package.json").exists())
 
     def test_snapshot_rejects_symlinks(self) -> None:

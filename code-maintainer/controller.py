@@ -49,6 +49,15 @@ from profiles import (
     validate_profile_selectors,
 )
 from slice_repair import SliceRepairFailure, repair_stale_slice_registry
+from sizing import (
+    DEFAULT_GROWTH_BUDGET,
+    FIX_ROLES,
+    DiffSize,
+    brief,
+    growth_violation,
+    measure_staged,
+    size_section,
+)
 from reporting import (
     MAINTENANCE_REPORT_PROMPT,
     REPORT_FIELD,
@@ -84,6 +93,18 @@ PROTECTED_PATTERNS = (
 
 class MaintainerFailure(RuntimeError):
     pass
+
+
+class OversizedChange(MaintainerFailure):
+    """The agent's tree grew the production source beyond the size policy."""
+
+    def __init__(self, violation: str, size: DiffSize) -> None:
+        super().__init__(violation)
+        self.size = size
+
+
+def growth_budget(config: dict[str, Any]) -> int:
+    return int(config.get("max_source_growth_lines", DEFAULT_GROWTH_BUDGET))
 
 
 def ensure_disk_capacity(config: dict[str, Any], stream: TextIO) -> None:
@@ -258,6 +279,8 @@ def agent_prompt(
     branch: str,
     context_evidence: Path,
     resuming: bool,
+    *,
+    budget: int = DEFAULT_GROWTH_BUDGET,
 ) -> str:
     resume = (
         "\nThis is a resumed interrupted run whose specialists and bounded edits "
@@ -266,6 +289,9 @@ def agent_prompt(
         "`git diff --check`, and return the required report immediately.\n"
         if resuming
         else ""
+    )
+    sizing_command = (
+        f"{sys.executable} {SCRIPT_DIR / 'sizing.py'} {workspace} --budget {budget}"
     )
     return f"""Use the scheduled code-maintainer skill at {SKILL_ROOT / 'SKILL.md'}.
 
@@ -279,6 +305,16 @@ Selected semantic slice:
 
 Audited current skills and official-documentation evidence: {context_evidence}
 Pull-request validation commands (context only; do not run): {json.dumps(project['validation_commands'])}
+
+Size objective: leave this slice smaller. The controller stages the tree and
+measures production source separately from tests and documentation. It
+publishes only when source is net-negative or unchanged, or grows by at most
+{budget} lines because the report adopts a correctness-reliability or
+security-hardening fix. An oversized tree is discarded unpublished and the
+slice advances. Adopt deletions and simplifications first, then fixes within
+that budget; report a larger fix as deferred with its exact patch. Before
+reporting, run `{sizing_command}` (add `--fix-adopted` when such a fix is
+adopted) and remove additions until it prints OK.
 
 Read the skill, repository instructions, project manifest, shared context, and
 the exact role-specific references routed by the manifest. Resolve selectors
@@ -392,6 +428,13 @@ def changed_diff_bytes(workspace: Path) -> int:
     return len(value.encode())
 
 
+def discard_changes(workspace: Path, stream: TextIO) -> None:
+    """Drop an unpublishable tree so the next run starts from the base branch."""
+
+    runtime.git(workspace, "reset", "--hard", "HEAD", stream=stream)
+    runtime.git(workspace, "clean", "-fd", stream=stream)
+
+
 def publish(
     workspace: Path,
     config: dict[str, Any],
@@ -401,7 +444,7 @@ def publish(
     branch: str,
     agent_output: str,
     stream: TextIO,
-) -> str:
+) -> tuple[str, DiffSize]:
     try:
         report = parse_maintenance_report(agent_output, item.roles)
     except ReportFailure as error:
@@ -424,6 +467,14 @@ def publish(
         raise MaintainerFailure("maintainer change exceeds the configured file budget")
     if changed_diff_bytes(workspace) > int(config.get("max_diff_bytes", 750_000)):
         raise MaintainerFailure("maintainer change exceeds the configured diff budget")
+    size = measure_staged(workspace, stream)
+    violation = growth_violation(
+        size,
+        fix_adopted=any(change.role in FIX_ROLES for change in report.changes),
+        budget=growth_budget(config),
+    )
+    if violation:
+        raise OversizedChange(violation, size)
     runtime.git(workspace, "diff", "--cached", "--check", stream=stream)
     target = item.title[:72]
     runtime.git(
@@ -458,6 +509,7 @@ def publish(
                 f"## Maintenance slice\n\nCycle {position.cycle}, semantic slice "
                 f"`{item.identifier}`: {item.title}.\n\n"
                 f"{maintenance_report_sections(report)}\n\n"
+                f"{size_section(size)}\n\n"
                 "## Pull-request validation\n\n"
                 "Validation is delegated to the repository's checks after this PR "
                 "is opened. The maintainer did not run these commands locally:\n\n"
@@ -471,7 +523,7 @@ def publish(
     url = result.stdout.strip().splitlines()[-1]
     if not re.fullmatch(r"https://github\.com/[^/]+/[^/]+/pull/\d+", url):
         raise MaintainerFailure(f"could not parse created PR URL: {url}")
-    return url
+    return url, size
 
 
 def execute_project(
@@ -629,6 +681,7 @@ def execute_project(
                 branch,
                 evidence,
                 resuming,
+                budget=growth_budget(config),
             ),
             stream,
             environment_file=SCRIPT_DIR / ".env",
@@ -667,16 +720,34 @@ def execute_project(
             if completion is not None:
                 completion["summary"] = message
             return message
-        url = publish(
-            workspace,
-            config,
-            project,
-            item,
-            position,
-            branch,
-            agent_output,
-            stream,
-        )
+        try:
+            url, size = publish(
+                workspace,
+                config,
+                project,
+                item,
+                position,
+                branch,
+                agent_output,
+                stream,
+            )
+        except OversizedChange as error:
+            discard_changes(workspace, stream)
+            advance(
+                cycle_path(project["name"]),
+                position,
+                identifiers,
+                slice_id=item.identifier,
+                outcome="discarded-growth",
+            )
+            terminal_cleanup = True
+            message = (
+                f"{project['name']}: cycle {position.cycle} {item.identifier} "
+                f"discarded unpublished: {error} ({brief(error.size)})"
+            )
+            if completion is not None:
+                completion["summary"] = message
+            return message
         atomic_json(
             pending_path(project["name"]),
             {
@@ -695,7 +766,7 @@ def execute_project(
             },
         )
         terminal_cleanup = True
-        message = f"{project['name']}: created {url}"
+        message = f"{project['name']}: created {url} ({brief(size)})"
         if completion is not None:
             completion.update(
                 summary=message,

@@ -7,7 +7,10 @@ Autonomous code-maintenance agents powered by Codex or Claude Code. Scheduled ag
 ### code-maintainer
 
 Continuously audits versioned semantic codebase slices instead of relying on a
-path checkbox. Every slice routes four read-only specialists:
+path checkbox. Its objective is a smaller codebase without regressions: every
+published PR must leave production source net-negative or unchanged, except
+for a correctness or security fix bounded by `max_source_growth_lines`
+(default 30). Every slice routes four read-only specialists:
 
 1. **Reuse and simplification** — deletes proven duplication and unnecessary indirection.
 2. **Efficiency and performance** — finds reachable repeated, unbounded, or avoidably serial work.
@@ -15,10 +18,14 @@ path checkbox. Every slice routes four read-only specialists:
 4. **Security hardening** — validates reachable authorization, tenant, input, trust-boundary, and data-exposure defects.
 
 The editing orchestrator independently verifies every specialist finding,
-applies one bounded coherent change, and hands validation to the repository's
-pull-request checks. The controller enforces protected paths, file and
-diff budgets, commits the returned tree, pushes a `code-maintain/*` branch, and
-opens the PR. Each changed run must return a structured publication report;
+applies deletions and simplifications first and fixes only within the growth
+budget, and hands validation to the repository's pull-request checks. The
+controller enforces protected paths, file and diff budgets, and the size
+policy: it stages the tree, measures production source separately from tests
+and documentation with `sizing.py` (the agent runs the same command before
+reporting), records the numbers in the PR body and completion summary, and
+discards an oversized tree unpublished. It commits the returned tree, pushes a
+`code-maintain/*` branch, and opens the PR. Each changed run must return a structured publication report;
 the PR records every specialist outcome, adopted changes, deferred and rejected
 findings, and manual UI checks. The controller persists the Codex thread ID and
 exact pushed head so failed PR checks can resume the same lifecycle.
@@ -30,7 +37,8 @@ when required hashed provider skills, Convex AI files, or official
 documentation are stale or fail integrity checks.
 
 Semantic slice state lives under `code-maintainer/state/cycles/`. A no-change
-audit advances immediately. A changed slice advances only after its PR merges;
+audit advances immediately, and so does a discarded oversized tree
+(`discarded-growth`). A changed slice advances only after its PR merges;
 a closed-unmerged PR retries the same semantic slice. Finishing the final slice
 increments the cycle and starts again automatically. Stable slice IDs survive
 folder and filename changes. Before starting a fresh `--apply` slice, the
@@ -200,7 +208,7 @@ The maintainer configuration includes:
 - **`projects`** — named repository, schedule, validation, and workspace policy objects
 - **`slice_repair`** — one-shot Codex Luna/medium remap of stale `slices.json` on overnight-agents `main`, then the same `--apply` run continues. Defaults on; set `"enabled": false` to keep the old fail-closed block.
 - **`context`** — shared audited Convex/React/WorkOS skill lock, AI-files root, and docs cache. TypeScript/Convex projects inherit it. A project may overlay individual keys, or set `"context": false` to skip that pipeline entirely.
-- **change budgets** — maximum changed files and diff bytes per autonomous PR
+- **change budgets** — maximum changed files and diff bytes per autonomous PR, and `max_source_growth_lines`, the most production source a correctness or security fix may add (simplification-only changes must not grow it)
 
 Each enabled project has its own daily launchd job. Disabled projects are skipped.
 

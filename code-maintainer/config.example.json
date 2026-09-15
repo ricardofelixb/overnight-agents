@@ -15,6 +15,7 @@
   "agent_timeout_seconds": 7200,
   "max_changed_files": 80,
   "max_diff_bytes": 750000,
+  "max_source_growth_lines": 30,
   "minimum_free_bytes": 10737418240,
   "ci_repair_max_attempts": 2,
   "max_ci_log_bytes": 5000000,

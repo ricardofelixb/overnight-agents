@@ -3,12 +3,16 @@
 `controller.py` rotates through versioned semantic slices forever. It prepares
 an isolated workspace, verifies fresh hashed skills, Convex AI guidance, and
 official documentation, invokes the `code-maintainer` skill, publishes a
-bounded PR, and advances cycle state only after a no-change audit or merged PR.
-Codex sessions are persisted with pending PRs. A completed GitHub workflow
-failure resumes that exact session for a bounded repair, while periodic
-reconciliation covers missed webhook delivery.
+bounded PR, and advances cycle state only after a no-change audit, a discarded
+oversized tree, or a merged PR. The objective is a smaller codebase without
+regressions: production source must shrink or stay equal, except for a
+correctness or security fix within `max_source_growth_lines`. Codex sessions
+are persisted with pending PRs. A completed GitHub workflow failure resumes
+that exact session for a bounded repair, while periodic reconciliation covers
+missed webhook delivery.
 
-- `controller.py` — lifecycle, safety budgets, publication, and pending PRs
+- `controller.py` — lifecycle, safety budgets, size gate, publication, and pending PRs
+- `sizing.py` — staged-diff measurement shared by the controller and the agent
 - `profiles.py` — project manifests, role routing, and semantic slices
 - `cycles.py` — atomic perpetual-cycle state
 - `context_evidence.py` — audited skills, AI-files, and official docs

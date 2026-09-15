@@ -13,6 +13,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from automation.launchd import calendar_intervals
 from profiles import ROLE_SET
+from sizing import DEFAULT_GROWTH_BUDGET
 
 
 class ConfigurationFailure(ValueError):
@@ -99,6 +100,12 @@ def validate_config(config: dict[str, Any]) -> None:
         1_000,
         5_000_000,
         "max_diff_bytes",
+    )
+    _bounded_integer(
+        config.get("max_source_growth_lines", DEFAULT_GROWTH_BUDGET),
+        0,
+        1_000,
+        "max_source_growth_lines",
     )
     _bounded_integer(
         config.get("minimum_free_bytes", 1024**3),

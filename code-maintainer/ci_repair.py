@@ -156,8 +156,10 @@ def handle_ci_result(
 Resume only the existing maintenance lifecycle. The exact failing head is {head_sha} and the
 current workspace is checked out at that commit. Diagnose the attached failed-job output,
 make only the smallest proven repair inside the original semantic slice, and inspect the final
-diff. Do not rerun specialists. Do not run tests, typechecks, linters, builds, or validation;
-GitHub CI owns validation and will rerun after publication. Run only `git diff --check`.
+diff. Prefer removing or correcting the change that broke CI over adding code; never add a
+fallback, retry, or compatibility path to make a check pass. Do not rerun specialists. Do not
+run tests, typechecks, linters, builds, or validation; GitHub CI owns validation and will rerun
+after publication. Run only `git diff --check`.
 Never commit, push, alter Git configuration, or change controller/CI policy.
 
 FAILED_CI_LOG_BEGIN

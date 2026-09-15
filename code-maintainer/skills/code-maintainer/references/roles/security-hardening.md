@@ -17,7 +17,10 @@ authorization or validation invariant in repository code and tests. Do not
 report generic hardening lists, dependency CVEs without affected reachable
 usage, or secrets inferred from filenames.
 
-Recommend the smallest root-cause fix and a negative regression test. Preserve
-authorized behavior and tenant isolation. Mark dependency upgrades, schema
-changes, secret rotation, infrastructure policy, public-contract changes, and
-broad architectural hardening deferred for a dedicated workflow.
+Recommend the smallest root-cause fix and a negative regression test.
+Removing an exposed or unnecessary path beats guarding it. Estimate the
+production lines the fix adds; a fix larger than the controller's growth
+budget is deferred with the exact patch and test. Preserve authorized behavior
+and tenant isolation. Mark dependency upgrades, schema changes, secret
+rotation, infrastructure policy, public-contract changes, and broad
+architectural hardening deferred for a dedicated workflow.

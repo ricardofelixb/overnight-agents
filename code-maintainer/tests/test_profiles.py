@@ -41,7 +41,8 @@ class ProjectProfileTests(unittest.TestCase):
             )
         self.assertTrue(all(set(item.roles) == ROLE_SET for item in profile.slices))
         self.assertIn("calendar", {item.identifier for item in profile.slices})
-        self.assertIn("payment-portal", {item.identifier for item in profile.slices})
+        webhooks = next(item for item in profile.slices if item.identifier == "webhooks")
+        self.assertIn("convex/billing/stripeWebhooks.ts", webhooks.selectors)
         workos_slices = {
             item.identifier: item
             for item in profile.slices

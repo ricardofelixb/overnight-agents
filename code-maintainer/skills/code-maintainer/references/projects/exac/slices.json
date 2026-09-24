@@ -50,25 +50,6 @@
       ]
     },
     {
-      "id": "quotes",
-      "title": "Quotes and quote authoring",
-      "selectors": [
-        "convex/operations/quotes/",
-        "convex/api/v1/quotes.ts",
-        "src/components/operations/quotes/",
-        "src/app/(dashboard)/cotizaciones/",
-        "src/app/cotizacion/",
-        "src/components/shared/forms/items/",
-        "src/lib/invoicing/",
-        "tests/quotes/"
-      ],
-      "search_terms": [
-        "quotes",
-        "cotizaciones",
-        "quote authoring"
-      ]
-    },
-    {
       "id": "invoices-payroll",
       "title": "Invoices and payroll invoices",
       "selectors": [
@@ -174,10 +155,8 @@
         "convex/balances/receivables/",
         "convex/api/v1/accounts.ts",
         "src/components/balances/receivables/",
-        "src/components/balances/account-ledger/",
+        "src/components/balances/account-documents/",
         "src/components/balances/forms/",
-        "src/components/balances/BalanceScopeTabs.tsx",
-        "src/components/balances/balance-scope.ts",
         "src/components/catalog/customers/shared/",
         "src/app/(dashboard)/cuentas-por-cobrar/",
         "tests/receivables/",
@@ -197,13 +176,10 @@
         "convex/balances/payables/",
         "convex/api/v1/accounts.ts",
         "src/components/balances/payables/",
-        "src/components/balances/account-ledger/",
+        "src/components/balances/account-documents/",
         "src/components/balances/forms/",
-        "src/components/balances/BalanceScopeTabs.tsx",
-        "src/components/balances/balance-scope.ts",
         "src/app/(dashboard)/cuentas-por-pagar/",
         "tests/payables/",
-        "tests/expenses/",
         "tests/balances/",
         "tests/accounts/"
       ],
@@ -211,22 +187,6 @@
         "payables",
         "supplier balances",
         "payable accounts"
-      ]
-    },
-    {
-      "id": "expenses",
-      "title": "Expenses and expense categories",
-      "selectors": [
-        "convex/operations/expenses/",
-        "convex/mcp/tools/expenses.ts",
-        "src/components/operations/expenses/",
-        "src/app/(dashboard)/caja/",
-        "tests/expenses/"
-      ],
-      "search_terms": [
-        "expenses",
-        "expense categories",
-        "gastos"
       ]
     },
     {
@@ -362,7 +322,7 @@
         "convex/mcp/tools/reports.ts",
         "src/components/fiscal/declarations/",
         "src/components/dashboard/widgets/",
-        "src/app/(dashboard)/declaraciones/",
+        "src/app/(dashboard)/inicio/",
         "tests/declarations/",
         "tests/analytics/",
         "tests/documents/"
@@ -385,7 +345,6 @@
         "convex/api/v1/certificates.ts",
         "convex/api/v1/taxProfile.ts",
         "src/components/settings/sections/certificates/",
-        "src/components/settings/sections/synchronization/",
         "tests/credentials/",
         "tests/settings/",
         "tests/sat/"
@@ -426,59 +385,6 @@
         "self invoice",
         "autofactura",
         "public portal"
-      ]
-    },
-    {
-      "id": "payment-portal",
-      "title": "Payment public portal and refunds",
-      "selectors": [
-        "convex/publicPortals/paymentPortal/",
-        "convex/integrations/financial/lib/stripe/",
-        "convex/webhooks/",
-        "src/components/public-portals/payment-portal/",
-        "src/components/payments/",
-        "src/app/pagar/",
-        "tests/publicPortals/"
-      ],
-      "search_terms": [
-        "payment portal",
-        "payment attempts",
-        "portal refunds"
-      ]
-    },
-    {
-      "id": "financial-integrations",
-      "title": "Financial integrations and providers",
-      "selectors": [
-        "convex/integrations/financial/",
-        "src/components/integrations/financial/",
-        "tests/integrations/financial/"
-      ],
-      "search_terms": [
-        "financial integrations",
-        "fintoc",
-        "stripe"
-      ]
-    },
-    {
-      "id": "treasury-banking",
-      "title": "Treasury, banking, and account connectivity",
-      "selectors": [
-        "convex/banking/",
-        "convex/integrations/financial/",
-        "convex/api/v1/accounts.ts",
-        "convex/mcp/tools/accounts.ts",
-        "src/components/treasury/",
-        "src/app/(dashboard)/tesoreria/",
-        "tests/treasury/",
-        "tests/banking/",
-        "tests/accounts/"
-      ],
-      "search_terms": [
-        "treasury",
-        "banking",
-        "accounts",
-        "tesoreria"
       ]
     },
     {
@@ -650,12 +556,15 @@
       "id": "webhooks",
       "title": "Webhook trust boundaries",
       "selectors": [
-        "convex/webhooks/",
-        "convex/banking/",
-        "tests/webhooks/",
-        "tests/banking/",
-        "tests/integrations/",
-        "tests/publicPortals/"
+        "convex/http.ts",
+        "convex/billing/stripeWebhooks.ts",
+        "convex/integrations/stripeApp/http.ts",
+        "convex/integrations/stripeApp/actions.ts",
+        "convex/integrations/messaging/telegram/actions/webhook.ts",
+        "tests/billing/stripe.test.ts",
+        "tests/integrations/stripeApp.test.ts",
+        "tests/integrations/stripeAppHttp.test.ts",
+        "tests/telegram/connect.test.ts"
       ],
       "search_terms": [
         "webhooks",
@@ -690,7 +599,6 @@
       "title": "Application shell and public layouts",
       "selectors": [
         "src/app/layout.tsx",
-        "src/app/page.tsx",
         "src/app/styles/",
         "src/components/ConvexClientProvider.tsx",
         "src/components/PublicConvexProvider.tsx",

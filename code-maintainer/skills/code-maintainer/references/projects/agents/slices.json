@@ -15,12 +15,15 @@
       "title": "Shared runtime, company config, and credentials",
       "selectors": [
         "core/runtime/",
-        "tests/core/runtime/"
+        "tests/core/runtime/",
+        "core/integrations/labsmobile/",
+        "tests/core/test_call_sms.py"
       ],
       "search_terms": [
         "company config",
         "source gateway",
-        "runtime credentials"
+        "runtime credentials",
+        "SMS delivery"
       ]
     },
     {
@@ -34,6 +37,168 @@
         "ToolDefinition",
         "provider adapter",
         "tool registry"
+      ]
+    },
+    {
+      "id": "organization-knowledge",
+      "title": "Shared organization knowledge and tools",
+      "selectors": [
+        "core/organization_knowledge.py",
+        "core/sdk/tools/organization_knowledge.py",
+        "tests/core/sdk/test_organization_knowledge.py",
+        "docs/organization-knowledge.md"
+      ],
+      "search_terms": [
+        "organization knowledge",
+        "knowledge sync",
+        "knowledge tools"
+      ]
+    },
+    {
+      "id": "template-finances",
+      "title": "Reusable finance agent template",
+      "selectors": [
+        "core/agent_templates/finances/"
+      ],
+      "search_terms": [
+        "finance template",
+        "collection evaluations",
+        "shared finance prompts"
+      ]
+    },
+    {
+      "id": "template-marketing",
+      "title": "Reusable marketing agent template",
+      "selectors": [
+        "core/agent_templates/marketing/",
+        "core/skills/editorial-quality/",
+        "tests/core/test_marketing_*.py",
+        "tests/core/test_exac_marketing_*.py",
+        "docs/editorial-quality.md"
+      ],
+      "search_terms": [
+        "marketing template",
+        "editorial workflow",
+        "social package"
+      ]
+    },
+    {
+      "id": "template-operations",
+      "title": "Reusable operations agent template",
+      "selectors": [
+        "core/agent_templates/operations/"
+      ],
+      "search_terms": [
+        "operations template",
+        "operations evaluations",
+        "shared operations prompts"
+      ]
+    },
+    {
+      "id": "core-evaluations",
+      "title": "Agent evaluation runners and evidence",
+      "selectors": [
+        "core/evals/",
+        "tests/core/evals/",
+        "tests/core/cli/test_eval_cli.py",
+        "docs/agent-evaluations.md",
+        "docs/media-quality-evaluations.md"
+      ],
+      "search_terms": [
+        "agent evaluations",
+        "media evaluation",
+        "evaluation evidence"
+      ]
+    },
+    {
+      "id": "marketing-media",
+      "title": "Marketing media and generation integrations",
+      "selectors": [
+        "core/integrations/marketing/",
+        "core/integrations/openai/",
+        "core/integrations/runway/",
+        "tests/core/integrations/runway/",
+        "tests/core/integrations/test_openai_images.py",
+        "docs/runway-integration.md"
+      ],
+      "search_terms": [
+        "media generation",
+        "Runway",
+        "image composition"
+      ]
+    },
+    {
+      "id": "marketing-research",
+      "title": "Marketing research and trend integrations",
+      "selectors": [
+        "core/integrations/dataforseo/",
+        "core/integrations/trendsmcp/",
+        "tests/core/test_marketing_research_engine.py",
+        "tests/core/test_marketing_social.py"
+      ],
+      "search_terms": [
+        "DataForSEO",
+        "TrendsMCP",
+        "marketing research"
+      ]
+    },
+    {
+      "id": "typesafe-ai",
+      "title": "TypeSafe AI judgments and gateway client",
+      "selectors": [
+        "core/integrations/typesafe/",
+        "tests/core/integrations/typesafe/"
+      ],
+      "search_terms": [
+        "TypeSafe",
+        "System One",
+        "typed judgment"
+      ]
+    },
+    {
+      "id": "remote-service-integrations",
+      "title": "Orgo and Zernio service boundaries",
+      "selectors": [
+        "core/integrations/orgo/",
+        "core/integrations/zernio/",
+        "tests/core/integrations/orgo/",
+        "tests/core/integrations/zernio/",
+        "tests/core/cli/test_zernio_provision.py",
+        "tests/core/test_zernio_read_tools.py",
+        "docs/zernio-integration.md"
+      ],
+      "search_terms": [
+        "Orgo computer",
+        "Zernio gateway",
+        "profile-scoped key"
+      ]
+    },
+    {
+      "id": "wialon-platform",
+      "title": "Wialon integration and semantic platform",
+      "selectors": [
+        "core/integrations/wialon/",
+        "tests/core/integrations/wialon/",
+        "tests/contract/wialon/",
+        "docs/wialon-mcp.md"
+      ],
+      "search_terms": [
+        "Wialon",
+        "fleet semantics",
+        "operations reporting"
+      ]
+    },
+    {
+      "id": "core-mcp",
+      "title": "Authenticated MCP gateways and registration",
+      "selectors": [
+        "core/mcp/",
+        "tests/core/mcp/"
+      ],
+      "search_terms": [
+        "MCP gateway",
+        "runtime token",
+        "tool registration"
       ]
     },
     {
@@ -94,21 +259,6 @@
       ]
     },
     {
-      "id": "core-billing",
-      "title": "Billing engine and collectors",
-      "selectors": [
-        "core/billing/",
-        "tests/core/billing/",
-        "infra/agents-runtime/systemd/agents-billing-collector.service",
-        "docs/usage-monitor.md"
-      ],
-      "search_terms": [
-        "billing",
-        "usage",
-        "provider cost"
-      ]
-    },
-    {
       "id": "core-reporting",
       "title": "Reporting delivery and search",
       "selectors": [
@@ -119,18 +269,6 @@
         "reporting",
         "delivery",
         "pagination"
-      ]
-    },
-    {
-      "id": "core-providers",
-      "title": "Provider management helpers",
-      "selectors": [
-        "core/providers/",
-        "tests/core/providers/"
-      ],
-      "search_terms": [
-        "xAI management",
-        "provider credentials"
       ]
     },
     {
@@ -213,6 +351,7 @@
       "title": "Production VM and systemd runtime",
       "selectors": [
         "infra/agents-runtime/",
+        "infra/runtime-config.yaml",
         "docs/production-vm-setup.md"
       ],
       "search_terms": [
@@ -226,6 +365,8 @@
       "title": "Repository scripts and HTTP entrypoints",
       "selectors": [
         "scripts/",
+        "tests/core/test_dependency_manifests.py",
+        "tests/core/test_validation.py",
         "server.py",
         "wsgi.py",
         "docs/local-development.md"

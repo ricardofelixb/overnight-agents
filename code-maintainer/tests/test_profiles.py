@@ -61,11 +61,28 @@ class ProjectProfileTests(unittest.TestCase):
         skill_root = Path(__file__).resolve().parent.parent / "skills/code-maintainer"
         profile = load_project_profile(skill_root, "agents")
         identifiers = {item.identifier for item in profile.slices}
-        self.assertGreaterEqual(len(profile.slices), 12)
+        self.assertGreaterEqual(len(profile.slices), 24)
         self.assertEqual(set(profile.role_context), ROLE_SET)
         self.assertTrue(
-            {"core-sdk", "company-exac", "livekit-voice"} <= identifiers
+            {
+                "core-sdk",
+                "organization-knowledge",
+                "template-finances",
+                "template-marketing",
+                "template-operations",
+                "core-evaluations",
+                "marketing-media",
+                "marketing-research",
+                "typesafe-ai",
+                "remote-service-integrations",
+                "wialon-platform",
+                "core-mcp",
+                "company-exac",
+                "livekit-voice",
+            }
+            <= identifiers
         )
+        self.assertTrue({"core-billing", "core-providers"}.isdisjoint(identifiers))
         self.assertTrue(all(set(item.roles) == ROLE_SET for item in profile.slices))
         self.assertTrue(
             all(item.guidance_domains == () for item in profile.slices)

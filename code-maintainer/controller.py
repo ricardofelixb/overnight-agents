@@ -37,6 +37,8 @@ from cycles import (
     atomic_json,
     checkpoint,
     load_position,
+    reconcile_registry,
+    retire_removed_slice,
 )
 from policy import ConfigurationFailure, resolve_context, validate_config
 from profiles import (
@@ -384,17 +386,14 @@ def reconcile_pending(
         raise MaintainerFailure("invalid pending maintainer state")
     identifiers = slice_ids(profile)
     pending_slice = pending.get("slice")
-    if not isinstance(pending_slice, str) or pending_slice not in identifiers:
-        raise MaintainerFailure("pending maintainer slice is no longer registered")
-    position = CyclePosition(
-        cycle=pending.get("cycle"),
-        index=identifiers.index(pending_slice),
-    )
+    pending_cycle = pending.get("cycle")
     if (
-        not isinstance(position.cycle, int)
-        or load_position(cycle_path(project["name"]), identifiers) != position
+        not isinstance(pending_slice, str)
+        or not isinstance(pending_cycle, int)
+        or isinstance(pending_cycle, bool)
+        or pending_cycle < 1
     ):
-        raise MaintainerFailure("pending maintainer slice no longer matches cycle state")
+        raise MaintainerFailure("invalid pending maintainer state")
     result = runtime.run(
         [
             "gh",
@@ -411,13 +410,49 @@ def reconcile_pending(
     value = json.loads(result.stdout)
     if value.get("state") == "OPEN":
         return f"{project['name']}: waiting for maintainer PR {value['url']}"
-    if value.get("mergedAt"):
-        advance(
+    if pending_slice in identifiers:
+        position = CyclePosition(
+            cycle=pending_cycle,
+            index=identifiers.index(pending_slice),
+        )
+        if load_position(cycle_path(project["name"]), identifiers) != position:
+            raise MaintainerFailure(
+                "pending maintainer slice no longer matches cycle state"
+            )
+        if value.get("mergedAt"):
+            advance(
+                cycle_path(project["name"]),
+                position,
+                identifiers,
+                slice_id=pending_slice,
+                outcome="merged",
+            )
+    else:
+        raw_snapshot = pending.get("slice_ids")
+        if raw_snapshot is None:
+            snapshot: tuple[str, ...] = ()
+        elif (
+            not isinstance(raw_snapshot, list)
+            or not raw_snapshot
+            or any(not isinstance(item, str) or not item for item in raw_snapshot)
+            or len(set(raw_snapshot)) != len(raw_snapshot)
+            or pending_slice not in raw_snapshot
+            or not isinstance(pending.get("index"), int)
+            or isinstance(pending.get("index"), bool)
+            or pending["index"] < 0
+            or pending["index"] >= len(raw_snapshot)
+            or raw_snapshot[pending["index"]] != pending_slice
+        ):
+            raise MaintainerFailure("invalid pending maintainer registry snapshot")
+        else:
+            snapshot = tuple(raw_snapshot)
+        retire_removed_slice(
             cycle_path(project["name"]),
-            position,
             identifiers,
-            slice_id=pending["slice"],
-            outcome="merged",
+            cycle=pending_cycle,
+            slice_id=pending_slice,
+            outcome="merged" if value.get("mergedAt") else "removed-from-registry",
+            previous_slice_ids=snapshot,
         )
     path.unlink()
     return None
@@ -585,6 +620,7 @@ def execute_project(
             if match:
                 completion["pr_url"] = match.group(0)
         return finish_without_agent(pending_message)
+    position = reconcile_registry(cycle_path(project["name"]), identifiers)
     if not resuming:
         missing = missing_profile_selectors(profile, workspace)
         if missing:
@@ -593,10 +629,15 @@ def execute_project(
             repair_stale_slice_registry(
                 config, project, profile, workspace, missing, stream
             )
+            previous_identifiers = identifiers
             profile = profile_for(project)
             identifiers = slice_ids(profile)
             validate_profile_selectors(profile, workspace)
-    position = load_position(cycle_path(project["name"]), identifiers)
+            position = reconcile_registry(
+                cycle_path(project["name"]),
+                identifiers,
+                previous_slice_ids=previous_identifiers,
+            )
     item = enabled_slice(config, current_slice(profile, position))
     active = active_maintainer_pr(project, stream)
     if active:
@@ -756,6 +797,7 @@ def execute_project(
                 "cycle": position.cycle,
                 "index": position.index,
                 "slice": item.identifier,
+                "slice_ids": list(identifiers),
                 "pull_request": int(url.rsplit("/", 1)[-1]),
                 "url": url,
                 "branch": branch,

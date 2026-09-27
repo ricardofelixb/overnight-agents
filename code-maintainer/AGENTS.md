@@ -41,4 +41,6 @@ to define the complete canonical role set.
 
 On a stale selector during `--apply`, `slice_repair.py` runs one Codex
 `gpt-5.6-luna` / medium pass against this repository, the controller verifies
-and pushes `main`, and the same job continues. Dry runs still fail closed.
+and pushes `main`, and the same job continues. Pending runs retain their slice
+registry order so a deleted slice is retired to the next surviving owner
+without blocking reconciliation. Dry runs still fail closed.

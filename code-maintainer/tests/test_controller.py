@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from typing import Callable
 from unittest import mock
@@ -86,6 +87,124 @@ class MaintainerControllerTests(unittest.TestCase):
             slices_path=slices,
             slices=(item,),
         )
+
+    def profile_with_ids(self, root: Path, *identifiers: str) -> ProjectProfile:
+        profile = self.profile(root)
+        return replace(
+            profile,
+            slices=tuple(
+                replace(
+                    profile.slices[0],
+                    identifier=identifier,
+                    title=identifier.title(),
+                    selectors=(f"{identifier}.ts",),
+                )
+                for identifier in identifiers
+            ),
+        )
+
+    def test_merged_pending_slice_removed_from_registry_is_retired(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fake_script_dir = root / "maintainer"
+            pending_path = fake_script_dir / "state/pending/example.json"
+            cycle_path = fake_script_dir / "state/cycles/example.json"
+            pending_path.parent.mkdir(parents=True)
+            cycle_path.parent.mkdir(parents=True)
+            pending_path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "project": "example",
+                        "cycle": 3,
+                        "index": 1,
+                        "slice": "removed",
+                        "pull_request": 17,
+                    }
+                )
+            )
+            cycle_path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "cycle": 3,
+                        "next_slice": "removed",
+                        "last_completed": {"cycle": 3, "slice": "before"},
+                    }
+                )
+            )
+            response = subprocess.CompletedProcess(
+                [],
+                0,
+                json.dumps(
+                    {
+                        "state": "MERGED",
+                        "mergedAt": "2026-09-04T01:56:58Z",
+                        "url": "https://github.com/owner/example/pull/17",
+                    }
+                ),
+                "",
+            )
+
+            with mock.patch.object(
+                MODULE, "SCRIPT_DIR", fake_script_dir
+            ), mock.patch.object(MODULE.runtime, "run", return_value=response):
+                message = MODULE.reconcile_pending(
+                    {"name": "example", "repository": "owner/example"},
+                    self.profile_with_ids(root / "profile", "before", "after"),
+                    io.StringIO(),
+                )
+
+            self.assertIsNone(message)
+            self.assertFalse(pending_path.exists())
+            state = json.loads(cycle_path.read_text())
+            self.assertEqual(state["next_slice"], "after")
+            self.assertEqual(state["last_completed"]["slice"], "removed")
+            self.assertEqual(state["last_completed"]["outcome"], "merged")
+
+    def test_open_pending_slice_removed_from_registry_still_waits(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fake_script_dir = root / "maintainer"
+            pending_path = fake_script_dir / "state/pending/example.json"
+            pending_path.parent.mkdir(parents=True)
+            pending_path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "cycle": 3,
+                        "slice": "removed",
+                        "pull_request": 17,
+                    }
+                )
+            )
+            response = subprocess.CompletedProcess(
+                [],
+                0,
+                json.dumps(
+                    {
+                        "state": "OPEN",
+                        "mergedAt": None,
+                        "url": "https://github.com/owner/example/pull/17",
+                    }
+                ),
+                "",
+            )
+
+            with mock.patch.object(
+                MODULE, "SCRIPT_DIR", fake_script_dir
+            ), mock.patch.object(MODULE.runtime, "run", return_value=response):
+                message = MODULE.reconcile_pending(
+                    {"name": "example", "repository": "owner/example"},
+                    self.profile_with_ids(root / "profile", "after"),
+                    io.StringIO(),
+                )
+
+            self.assertEqual(
+                message,
+                "example: waiting for maintainer PR https://github.com/owner/example/pull/17",
+            )
+            self.assertTrue(pending_path.exists())
 
     def test_prompt_routes_every_selected_specialist_and_fresh_evidence(self) -> None:
         profile = self.profile(Path("/tmp/profile"))
@@ -388,6 +507,81 @@ class MaintainerControllerTests(unittest.TestCase):
             self.assertEqual(repaired, [(("source", "missing.ts"),)])
             self.assertEqual(
                 message, "example: waiting for maintainer PR https://github.com/owner/example/pull/9"
+            )
+
+    def test_apply_retires_a_slice_deleted_by_repair_then_continues(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            (workspace / "source.ts").write_text("export const value = 1;\n")
+            stale = self.profile_with_ids(root / "profile", "removed", "source")
+            stale = replace(
+                stale,
+                slices=(
+                    replace(stale.slices[0], selectors=("missing.ts",)),
+                    stale.slices[1],
+                ),
+            )
+            fixed = self.profile_with_ids(root / "profile", "source")
+            profiles = iter([stale, fixed])
+            fake_script_dir = root / "maintainer"
+            cycle_path = fake_script_dir / "state/cycles/example.json"
+            (fake_script_dir / "state/pending").mkdir(parents=True)
+            cycle_path.parent.mkdir(parents=True)
+            cycle_path.write_text(
+                json.dumps(
+                    {"version": 1, "cycle": 2, "next_slice": "removed"}
+                )
+            )
+            project = {
+                "name": "example",
+                "enabled": True,
+                "source_path": str(root / "source"),
+                "repository": "owner/example",
+                "base_branch": "main",
+                "environment_file": str(root / "example.env"),
+                "validation_commands": [["true"]],
+            }
+            config = {
+                "provider": "codex",
+                "_config_dir": str(fake_script_dir),
+                "workspace_root": str(root / "workspaces"),
+            }
+
+            with mock.patch.object(
+                MODULE, "SCRIPT_DIR", fake_script_dir
+            ), mock.patch.object(
+                MODULE, "profile_for", side_effect=lambda _project: next(profiles)
+            ), mock.patch.object(
+                MODULE,
+                "prepare_workspace",
+                return_value={
+                    "workspace": str(workspace),
+                    "resuming": False,
+                    "branch": "",
+                    "created": True,
+                },
+            ), mock.patch.object(
+                MODULE, "repair_stale_slice_registry"
+            ), mock.patch.object(
+                MODULE,
+                "active_maintainer_pr",
+                return_value="https://github.com/owner/example/pull/9",
+            ), mock.patch.object(
+                MODULE, "reconcile_pending", return_value=None
+            ):
+                with (root / "controller.log").open("w") as stream:
+                    message = MODULE.execute_project(
+                        config, project, apply=True, stream=stream
+                    )
+
+            self.assertEqual(
+                message,
+                "example: waiting for maintainer PR https://github.com/owner/example/pull/9",
+            )
+            self.assertEqual(
+                json.loads(cycle_path.read_text())["next_slice"], "source"
             )
 
     def test_dry_run_does_not_repair_stale_selectors(self) -> None:
@@ -901,6 +1095,7 @@ class MaintainerControllerTests(unittest.TestCase):
                 (fake_script_dir / "state/pending/example.json").read_text()
             )
             self.assertEqual(pending["slice"], "source")
+            self.assertEqual(pending["slice_ids"], ["source"])
             self.assertEqual(pending["codex_session_id"], "thread-test")
             cycle = json.loads(
                 (fake_script_dir / "state/cycles/example.json").read_text()

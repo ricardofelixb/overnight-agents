@@ -41,13 +41,15 @@ audit advances immediately, and so does a discarded oversized tree
 (`discarded-growth`). A changed slice advances only after its PR merges;
 a closed-unmerged PR retries the same semantic slice. Finishing the final slice
 increments the cycle and starts again automatically. Stable slice IDs survive
-folder and filename changes. Before starting a fresh `--apply` slice, the
-controller checks every registered selector against the prepared workspace. If
-any path is stale, it runs one Codex `gpt-5.6-luna` / medium-reasoning repair
-against overnight-agents, retargets `slices.json`, verifies the registry,
-commits and pushes `main`, then continues the same run. A dry run still fails
-closed. A second miss, a dirty overnight-agents tree, or an allowlist violation
-blocks the job.
+folder and filename changes. Pending runs persist their registry order; if a
+repair removes a slice, the controller records its terminal outcome, selects
+the next surviving semantic owner, and continues automatically. Before
+starting a fresh `--apply` slice, the controller checks every registered
+selector against the prepared workspace. If any path is stale, it runs one
+Codex `gpt-5.6-luna` / medium-reasoning repair against overnight-agents,
+retargets `slices.json`, verifies the registry, commits and pushes `main`, then
+continues the same run. A dry run still fails closed. A second miss, a dirty
+overnight-agents tree, or an allowlist violation blocks the job.
 
 Runs use isolated shared workspaces under `automation/`. Each enabled project
 has its own daily launchd job and `schedule`. Exac uses

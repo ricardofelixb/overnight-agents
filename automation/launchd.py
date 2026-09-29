@@ -81,7 +81,9 @@ def definition(
         "StartCalendarInterval": calendar_intervals(schedule),
         "StandardOutPath": str(log_path),
         "StandardErrorPath": str(log_path),
-        "ProcessType": "Background",
+        # Build tools and local backends inherit this policy. Background
+        # throttling can exhaust their wall-clock deadlines during setup.
+        "ProcessType": "Standard",
         "ThrottleInterval": 60,
     }
 

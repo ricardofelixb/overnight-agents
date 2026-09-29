@@ -60,6 +60,11 @@ Agents uses a simpler `scripts/setup-worktree.sh` that only creates an isolated
 unexpected workspaces are quarantined.
 
 The shared `state/maintenance.lock` remains the single schedule-overlap guard.
+Maintainer LaunchAgents use macOS `Standard` process priority. `Background`
+priority also throttles child build tools and local Convex backends, which can
+make module loading exceed Convex's execution deadline during workspace setup.
+After updating the installer, rerun `code-maintainer/install_launchd.py` to
+apply this policy to installed schedules.
 
 ### pr-reviewer
 

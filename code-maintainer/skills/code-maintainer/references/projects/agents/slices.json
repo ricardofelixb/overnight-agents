@@ -116,10 +116,10 @@
       "selectors": [
         "core/integrations/marketing/",
         "core/integrations/openai/",
-        "core/integrations/runway/",
-        "tests/core/integrations/runway/",
+        "core/integrations/marketing/images.py",
+        "tests/core/integrations/test_marketing_*.py",
         "tests/core/integrations/test_openai_images.py",
-        "docs/runway-integration.md"
+        "docs/marketing-images.md"
       ],
       "search_terms": [
         "media generation",

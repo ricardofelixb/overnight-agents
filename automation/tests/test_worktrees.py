@@ -206,6 +206,20 @@ class LinkedWorktreeTests(unittest.TestCase):
                 str(workspace), self.git("worktree", "list", "--porcelain", cwd=source)
             )
 
+    def test_failed_setup_command_rolls_back_monorepo_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, checklist, _ = self.fixture(root)
+            workspace = Path(str(self.prepare(root, source, checklist)["workspace"]))
+            with self.assertRaises(MODULE.WorktreeFailure):
+                MODULE.run_setup_hook_with_rollback(
+                    source_path=source, workspace=workspace,
+                    branch_prefix="code-organize", setup_command=[],
+                    setup_commands=[["/usr/bin/false"]],
+                    cleanup_command=["scripts/cleanup-worktree.sh"], resuming=False,
+                )
+            self.assertFalse(workspace.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

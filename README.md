@@ -55,8 +55,9 @@ Runs use isolated shared workspaces under `automation/`. Each enabled project
 has its own daily launchd job and `schedule`. Exac uses
 `scripts/setup-worktree.sh --convex-mode local` and
 `scripts/cleanup-worktree.sh`, giving every run a private local Convex backend.
-Agents uses a simpler `scripts/setup-worktree.sh` that only creates an isolated
-`.venv`. Dirty interrupted `code-maintain/*` work is preserved for resume;
+Agents-app covers the whole monorepo and installs root pnpm dependencies plus
+the frozen uv environment in `runtime/`. Dirty interrupted `code-maintain/*`
+work is preserved for resume;
 unexpected workspaces are quarantined.
 
 The shared `state/maintenance.lock` remains the single schedule-overlap guard.
@@ -154,7 +155,7 @@ The two commands are intentionally independent. `/simplify` runs only the simpli
 
    The installer manages one LaunchAgent per enabled project, currently
    `com.overnight-agents.code-maintainer.exac` and
-   `com.overnight-agents.code-maintainer.agents`, and removes the legacy
+   `com.overnight-agents.code-maintainer.agents-app`, and removes the legacy
    combined `com.overnight-agents.code-maintainer` label.
 
 7. Install the human-PR simplifier, reviewer skill, and promoted provider bundle globally:
@@ -188,11 +189,16 @@ The two commands are intentionally independent. `/simplify` runs only the simpli
      --env ./pr-reviewer/.env
    ```
 
-   The hook subscribes to `issue_comment` and `workflow_run`. Post `/review` for only a correctness/security review or `/simplify` for only a behavior-preserving simplification pass. Completed `Code Quality` runs for pending `code-maintain/*` PRs are routed automatically to the same persisted maintenance session. A new authorized comment command intentionally starts a fresh exact-SHA review job even if the same head was handled previously.
+   The hook subscribes to `issue_comment` and `workflow_run`. Post `/review` for only a correctness/security review or `/simplify` for only a behavior-preserving simplification pass. Completed configured workflow runs for pending `code-maintain/*` PRs are routed automatically to the same persisted maintenance session. A new authorized comment command intentionally starts a fresh exact-SHA review job even if the same head was handled previously.
 
    Configure `workspace_hooks` for repository-owned setup and cleanup. For Exac, both webhook commands run the canonical `scripts/setup-worktree.sh --convex-mode local` from the trusted source checkout against the exact-head review clone, then always run `scripts/cleanup-worktree.sh`. Each top-level command gets one private local Convex deployment; all specialists inside that command use it, and it is deleted when the command finishes.
 
    Progress feedback is enabled by default. Configure `github_progress_enabled` and `github_progress_heartbeat_seconds` in defaults or per project; the heartbeat interval must be between 60 and 3600 seconds.
+
+Register agents-app in the reviewer configuration with `maintenance_only: true`
+for provider-context refresh and maintenance CI events; explicit `/review` and
+`/simplify` comments remain disabled for that entry. Convex AI-file refresh
+supports both root `convex.json` and the monorepo `convex/convex.json`.
 
 The weekly refresh uses isolated temporary clones. It promotes audited provider skills globally and runs `npx convex ai-files update` for each enabled Convex project, publishing a hashed guidance snapshot without modifying the configured source checkout.
 
@@ -224,9 +230,10 @@ repository, base branch, schedule, and validation commands. Clone workspaces als
 a private environment file. A linked-worktree project instead configures
 repository-relative `setup_command` and `cleanup_command` arrays. Exac selects
 canonical worktree setup with `--convex-mode local`; cleanup removes its
-private backend before removing the worktree. Agents uses a simpler venv-only
-setup hook and sets `"context": false` because it is a Python runtime, not
-Next.js or Convex.
+private backend before removing the worktree. Agents-app uses
+`workspace.setup_commands` to install both pnpm and frozen
+uv dependencies, and inherits shared context for its React/Convex/WorkOS slices.
+Python-only slices select no provider domains.
 
 Root context is one audited store for provider skills and official docs. Convex
 AI-files snapshots already live under `ai_files_root/<project>/`, and evidence
@@ -286,6 +293,9 @@ Every reviewer and PR simplifier owns one complete review, edit, validation, and
 2. Scheduled maintainers do not run tests, typechecks, linters, builds, or a separate verifier. They inspect the final diff and run only `git diff --check`.
 3. The maintainer controller publishes the bounded tree and persists its Codex thread ID with the exact PR head.
 4. GitHub PR checks validate that head. A signed completed-workflow event records success or resumes the same thread with the complete job log after failure.
+   Agents-app watches both `CI` and `Runtime Quality`; one successful workflow
+   cannot mark the whole monorepo green. Its maintenance PRs are drafts until
+   the user authorizes ready-for-review/merge under repository instructions.
 5. Repair pushes use an exact-head lease and are limited to two attempts by default. The periodic reconciler recovers missed webhook deliveries.
 
 If the failure is external, transient, ambiguous, or unsafe to repair, the reviewer reports the precise blocker instead of guessing.
@@ -311,11 +321,11 @@ If the failure is external, transient, ambiguous, or unsafe to repair, the revie
 
 ```bash
 ./code-maintainer/controller.py --project exac --apply
-./code-maintainer/controller.py --project agents --apply
+./code-maintainer/controller.py --project agents-app --apply
 
 # Inspect the next semantic slice without editing.
 ./code-maintainer/controller.py --project exac
-./code-maintainer/controller.py --project agents
+./code-maintainer/controller.py --project agents-app
 
 # Review one exact PR with verified repairs enabled.
 ./pr-reviewer/controller.py \

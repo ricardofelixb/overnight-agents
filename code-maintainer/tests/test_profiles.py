@@ -57,9 +57,9 @@ class ProjectProfileTests(unittest.TestCase):
             all("workos" in item.guidance_domains for item in workos_slices.values())
         )
 
-    def test_agents_routes_core_and_company_slices_without_provider_domains(self) -> None:
+    def test_agents_app_covers_clients_backend_and_runtime(self) -> None:
         skill_root = Path(__file__).resolve().parent.parent / "skills/code-maintainer"
-        profile = load_project_profile(skill_root, "agents")
+        profile = load_project_profile(skill_root, "agents-app")
         identifiers = {item.identifier for item in profile.slices}
         self.assertGreaterEqual(len(profile.slices), 24)
         self.assertEqual(set(profile.role_context), ROLE_SET)
@@ -82,10 +82,11 @@ class ProjectProfileTests(unittest.TestCase):
             }
             <= identifiers
         )
+        self.assertTrue({"desktop-shell", "mobile-client", "web-client", "shared-protocol", "backend-agents", "backend-platform", "runtime-client-contracts", "runtime-tracing"} <= identifiers)
         self.assertTrue({"core-billing", "core-providers"}.isdisjoint(identifiers))
         self.assertTrue(all(set(item.roles) == ROLE_SET for item in profile.slices))
         self.assertTrue(
-            all(item.guidance_domains == () for item in profile.slices)
+            all(item.guidance_domains == () for item in profile.slices if item.selectors[0].startswith("runtime/") and item.identifier != "runtime-client-contracts")
         )
         self.assertFalse(
             any(
@@ -94,7 +95,7 @@ class ProjectProfileTests(unittest.TestCase):
                 for path in paths
             )
         )
-        source = Path("/Users/ricardo/Projects/agents")
+        source = Path("/Users/ricardo/Projects/agents-app")
         if source.exists():
             tracked = subprocess.check_output(
                 ["git", "-C", str(source), "ls-tree", "-r", "--name-only", "origin/main"],

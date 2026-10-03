@@ -173,6 +173,7 @@ class DeliveryQueue:
                     "--pr", str(job["pr_number"]),
                     "--run-id", str(job["run_id"]),
                     "--head-sha", str(job["head_sha"]),
+                    "--workflow-name", str(job.get("workflow_name", "Code Quality")),
                     "--conclusion", str(job["conclusion"]),
                 ]
             else:
@@ -289,6 +290,8 @@ class WebhookApplication:
         if project is None:
             return 202, {"status": "ignored", "reason": "repository"}
         issue = payload.get("issue") or {}
+        if project.get("maintenance_only", False):
+            return 202, {"status": "ignored", "reason": "maintenance_only"}
         if not issue.get("pull_request"):
             return 202, {"status": "ignored", "reason": "not_pull_request"}
         if issue.get("state") != "open":
@@ -351,7 +354,11 @@ class WebhookApplication:
         if project is None:
             return 202, {"status": "ignored", "reason": "repository"}
         run = payload.get("workflow_run") or {}
-        if run.get("name") != project.get("maintenance_workflow_name", "Code Quality"):
+        workflows = project.get(
+            "maintenance_workflow_names",
+            [project.get("maintenance_workflow_name", "Code Quality")],
+        )
+        if run.get("name") not in workflows:
             return 202, {"status": "ignored", "reason": "workflow"}
         branch = run.get("head_branch")
         if not isinstance(branch, str) or not branch.startswith("code-maintain/"):
@@ -388,6 +395,7 @@ class WebhookApplication:
             "action": f"workflow_run:{conclusion}",
             "operation": "maintenance_ci",
             "run_id": run_id,
+            "workflow_name": run["name"],
             "head_sha": head_sha,
             "head_branch": branch,
             "conclusion": conclusion,

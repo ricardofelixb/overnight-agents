@@ -305,10 +305,25 @@ def run_setup_hook_with_rollback(
     resuming: bool,
     stream: TextIO | None = None,
     management_token_file: Path | None = None,
+    setup_commands: list[list[str]] | None = None,
 ) -> None:
     """Run repository setup and roll back a newly prepared worktree on failure."""
     try:
-        run_setup_hook(workspace, setup_command, stream=stream)
+        if setup_commands:
+            from automation import runtime
+
+            for command in setup_commands:
+                try:
+                    runtime.run(
+                        command,
+                        cwd=workspace,
+                        env=runtime.agent_environment(workspace),
+                        stream=stream,
+                    )
+                except (OSError, RuntimeError) as error:
+                    raise WorktreeFailure(str(error)) from error
+        else:
+            run_setup_hook(workspace, setup_command, stream=stream)
     except WorktreeFailure as setup_error:
         try:
             run_cleanup_hook(

@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT))
 from refresh_ai_files import (
     AiFilesRefreshFailure,
     audit_and_hash,
+    convex_project_directory,
     github_repository_from_origin,
     is_managed_ai_file,
     managed_snapshot_files,
@@ -20,6 +21,33 @@ from refresh_ai_files import (
 
 
 class ConvexAiFilesRefreshTests(unittest.TestCase):
+    def test_monorepo_refresh_uses_the_convex_package_and_captures_its_guidance(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary).resolve()
+            convex = workspace / "convex"
+            convex.mkdir()
+            (convex / "convex.json").write_text("{}")
+            self.assertEqual(convex_project_directory(workspace), convex)
+            guidance = convex / ".agents/skills/convex/SKILL.md"
+            guidance.parent.mkdir(parents=True)
+            guidance.write_text("Guidance")
+            self.assertIn(guidance, managed_snapshot_files(workspace))
+            self.assertTrue(is_managed_ai_file("convex/.agents/skills/convex/SKILL.md"))
+            self.assertFalse(is_managed_ai_file("runtime/.agents/skills/convex/SKILL.md"))
+            self.assertFalse(is_managed_ai_file("convex/.agents/skills/untrusted/SKILL.md"))
+
+    def test_convex_package_cannot_escape_through_a_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            workspace = root / "workspace"
+            outside = root / "outside"
+            workspace.mkdir()
+            outside.mkdir()
+            (outside / "convex.json").write_text("{}")
+            (workspace / "convex").symlink_to(outside)
+            with self.assertRaisesRegex(AiFilesRefreshFailure, "escapes"):
+                convex_project_directory(workspace)
+
     def test_github_origin_must_match_a_canonical_repository(self) -> None:
         self.assertEqual(
             github_repository_from_origin("https://github.com/get-convex/convex.git"),

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import json
 import sys
 import tempfile
 import unittest
@@ -19,6 +20,60 @@ SPEC.loader.exec_module(MODULE)
 
 
 class MaintenanceCiRepairTests(unittest.TestCase):
+    def test_monorepo_requires_both_workflow_successes_on_the_same_head(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "pending.json"
+            path.write_text(json.dumps({
+                "version": 1, "project": "agents-app", "pull_request": 17,
+                "branch": "code-maintain/test", "head_sha": "a" * 40,
+            }))
+            project = {"name": "agents-app", "repository": "owner/agents-app",
+                       "base_branch": "main", "maintenance_workflow_names": ["CI", "Runtime Quality"]}
+            with (
+                mock.patch.object(MODULE, "load_config", return_value={"projects": [project]}),
+                mock.patch.object(MODULE, "_load_pending", side_effect=lambda _: (path, json.loads(path.read_text()))),
+                mock.patch.object(MODULE, "_gh_json", return_value={
+                    "state": "OPEN", "headRefOid": "a" * 40,
+                    "headRefName": "code-maintain/test", "baseRefName": "main",
+                }),
+                mock.patch.object(MODULE.runtime, "resume_codex_session") as resume,
+            ):
+                MODULE.handle_ci_result(Path("config.json"), "agents-app", 17, 99,
+                                        "a" * 40, "success", io.StringIO(), workflow_name="CI")
+                self.assertEqual(json.loads(path.read_text())["ci_conclusion"], "pending")
+                MODULE.handle_ci_result(Path("config.json"), "agents-app", 17, 100,
+                                        "a" * 40, "success", io.StringIO(), workflow_name="Runtime Quality")
+                self.assertEqual(json.loads(path.read_text())["ci_conclusion"], "success")
+            resume.assert_not_called()
+
+    def test_reconciler_waits_for_latest_complete_workflow_run(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / "state/pending/agents-app.json"
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps({"project": "agents-app", "pull_request": 17,
+                                       "head_sha": "a" * 40, "branch": "code-maintain/test",
+                                       "codex_session_id": "thread-1"}))
+            project = {"name": "agents-app", "repository": "owner/agents-app",
+                       "maintenance_workflow_names": ["CI", "Runtime Quality"]}
+            def run(name: str, identifier: int, status: str, conclusion: str | None) -> dict:
+                return {"name": name, "id": identifier, "status": status,
+                        "conclusion": conclusion, "event": "pull_request",
+                        "head_sha": "a" * 40, "head_branch": "code-maintain/test"}
+            with (
+                mock.patch.object(MODULE, "SCRIPT_DIR", root),
+                mock.patch.object(MODULE, "load_config", return_value={"projects": [project]}),
+                mock.patch.object(MODULE, "_gh_json", return_value={"workflow_runs": [
+                    run("CI", 99, "completed", "success"),
+                    run("Runtime Quality", 100, "completed", "failure"),
+                    run("Runtime Quality", 101, "in_progress", None),
+                ]}),
+                mock.patch.object(MODULE, "handle_ci_result", return_value="recorded") as handle,
+            ):
+                self.assertEqual(MODULE.reconcile(Path("config.json"), io.StringIO()), ["recorded"])
+            self.assertEqual(handle.call_count, 1)
+            self.assertEqual(handle.call_args.kwargs["workflow_name"], "CI")
+
     def test_success_records_exact_workflow_without_resuming_agent(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             pending_file = Path(temporary) / "pending.json"

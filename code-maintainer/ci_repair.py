@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import fcntl
 import json
-import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -69,9 +68,17 @@ def handle_ci_result(
     head_sha: str,
     conclusion: str,
     stream: object,
+    workflow_name: str | None = None,
 ) -> str:
     config = load_config(config_path)
     project = _project(config, project_name)
+    workflows = project.get(
+        "maintenance_workflow_names",
+        [project.get("maintenance_workflow_name", "Code Quality")],
+    )
+    workflow_name = workflow_name or str(workflows[0])
+    if workflow_name not in workflows:
+        raise MaintainerFailure("CI workflow is not configured for this project")
     pending_file, pending = _load_pending(project_name)
     if pending.get("pull_request") != pr_number:
         raise MaintainerFailure("CI event does not match the pending maintenance PR")
@@ -97,12 +104,23 @@ def handle_ci_result(
         raise MaintainerFailure("CI event no longer matches the open PR head")
 
     updated = dict(pending)
-    updated["ci_conclusion"] = conclusion
+    recorded = dict(pending.get("ci_workflows") or {})
+    recorded[workflow_name] = {"run_id": run_id, "conclusion": conclusion}
+    updated["ci_workflows"] = recorded
+    outcomes = [recorded.get(name, {}).get("conclusion", "pending") for name in workflows]
+    if "failure" in outcomes:
+        updated["ci_conclusion"] = "failure"
+    elif all(value == "success" for value in outcomes):
+        updated["ci_conclusion"] = "success"
+    else:
+        updated["ci_conclusion"] = "pending"
     updated["ci_run_id"] = run_id
     updated["ci_updated_at"] = runtime.now_iso()
     if conclusion == "success":
         atomic_json(pending_file, updated)
-        return f"{project_name}: CI passed for {head_sha}"
+        if updated["ci_conclusion"] == "success":
+            return f"{project_name}: CI passed for {head_sha}"
+        return f"{project_name}: {workflow_name} passed; remaining CI is {updated['ci_conclusion']}"
     if conclusion != "failure":
         atomic_json(pending_file, updated)
         return f"{project_name}: recorded CI conclusion {conclusion}"
@@ -218,6 +236,7 @@ FAILED_CI_LOG_END
             ci_repair_attempts=attempts + 1,
             ci_conclusion="pending",
             ci_repair_session_id=session_id,
+            ci_workflows={},
         )
         atomic_json(pending_file, updated)
         terminal_cleanup = True
@@ -257,47 +276,44 @@ def reconcile(config_path: Path, stream: object) -> list[str]:
         project = _project(config, project_name)
         value = _gh_json(
             [
-                "gh", "pr", "view", str(pr_number), "--repo", str(project["repository"]),
-                "--json", "statusCheckRollup",
+                "gh", "api",
+                f"repos/{project['repository']}/actions/runs?head_sha={head_sha}&per_page=100",
             ],
             stream,
         )
-        checks = value.get("statusCheckRollup")
+        checks = value.get("workflow_runs")
         if not isinstance(checks, list):
             continue
-        workflow_name = project.get("maintenance_workflow_name", "Code Quality")
-        completed = [
-            check
-            for check in checks
-            if isinstance(check, dict)
-            and check.get("workflowName") == workflow_name
-            and check.get("status") == "COMPLETED"
-            and str(check.get("conclusion", "")).lower() in {"success", "failure"}
-        ]
-        if not completed:
-            continue
-        check = completed[-1]
-        match = re.search(r"/actions/runs/(\d+)", str(check.get("detailsUrl", "")))
-        if not match:
-            continue
-        run_id = int(match.group(1))
-        conclusion = str(check["conclusion"]).lower()
-        if (
-            pending.get("ci_run_id") == run_id
-            and pending.get("ci_conclusion") == conclusion
-        ):
-            continue
-        results.append(
-            handle_ci_result(
-                config_path,
-                project_name,
-                pr_number,
-                run_id,
-                head_sha,
-                conclusion,
-                stream,
-            )
+        workflows = project.get(
+            "maintenance_workflow_names",
+            [project.get("maintenance_workflow_name", "Code Quality")],
         )
+        for workflow_name in workflows:
+            matching = [
+                check for check in checks
+                if isinstance(check, dict)
+                and check.get("name") == workflow_name
+                and check.get("event") == "pull_request"
+                and check.get("head_sha") == head_sha
+                and check.get("head_branch") == pending.get("branch")
+            ]
+            if not matching:
+                continue
+            check = max(matching, key=lambda entry: entry.get("id", 0))
+            conclusion = check.get("conclusion")
+            if check.get("status") != "completed" or conclusion not in {"success", "failure"}:
+                continue
+            previous = (pending.get("ci_workflows") or {}).get(workflow_name, {})
+            if previous == {"run_id": check["id"], "conclusion": conclusion}:
+                continue
+            results.append(
+                handle_ci_result(
+                    config_path, project_name, pr_number, check["id"], head_sha,
+                    conclusion, stream, workflow_name=workflow_name,
+                )
+            )
+            if conclusion == "failure":
+                break
     return results
 
 
@@ -309,6 +325,7 @@ def main() -> int:
     parser.add_argument("--run-id", type=int)
     parser.add_argument("--head-sha")
     parser.add_argument("--conclusion")
+    parser.add_argument("--workflow-name")
     parser.add_argument("--reconcile", action="store_true")
     args = parser.parse_args()
     logs = SCRIPT_DIR / "logs"
@@ -336,6 +353,7 @@ def main() -> int:
                             args.head_sha,
                             args.conclusion,
                             stream,
+                            workflow_name=args.workflow_name,
                         )
                     ]
         for message in messages:

@@ -30,9 +30,13 @@ under `skills/code-maintainer/references/projects/<name>/` and validate its
 `profile.json` and `slices.json` before enabling it. Each project owns its
 `schedule`; launchd installs one job per enabled project. Root `context` is
 the shared audited Convex/React/WorkOS skill/docs cache. A TypeScript/Convex
-project inherits it, or sets a sparse overlay. A Python runtime such as
-`agents` sets `"context": false` so it never loads that pipeline. Slice
-`guidance_domains` still decide which inherited artifacts a run loads.
+project inherits it, or sets a sparse overlay. Agents-app covers the entire
+monorepo and inherits that context; Python-only
+slices select no provider domains. Its workspace setup commands install root
+pnpm dependencies and the frozen uv environment in `runtime/`.
+`maintenance_workflow_names` selects both `CI` and `Runtime Quality`, and
+`pull_request_draft` preserves the repository publication policy. Slice
+`guidance_domains` decide which inherited artifacts a run loads.
 
 The optional root-level `agents` object temporarily enables or disables known
 specialist roles with booleans. Omitted roles default to enabled. At least one

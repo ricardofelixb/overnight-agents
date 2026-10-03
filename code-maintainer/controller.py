@@ -531,6 +531,7 @@ def publish(
             "gh",
             "pr",
             "create",
+            *(["--draft"] if project.get("pull_request_draft", False) else []),
             "--repo",
             project["repository"],
             "--base",
@@ -547,7 +548,7 @@ def publish(
                 f"{size_section(size)}\n\n"
                 "## Pull-request validation\n\n"
                 "Validation is delegated to the repository's checks after this PR "
-                "is opened. The maintainer did not run these commands locally:\n\n"
+                "is ready for review. The maintainer did not run these commands locally:\n\n"
                 f"```text\n{validation}\n```\n\n"
                 f"{ui_section}"
             ),
@@ -666,7 +667,8 @@ def execute_project(
                     source_path=Path(project["source_path"]),
                     workspace=workspace,
                     branch_prefix=BRANCH_PREFIX,
-                    setup_command=workspace_config["setup_command"],
+                    setup_command=workspace_config.get("setup_command", []),
+                    setup_commands=workspace_config.get("setup_commands"),
                     cleanup_command=workspace_config["cleanup_command"],
                     management_token_file=Path(token) if token else None,
                     resuming=False,

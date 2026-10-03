@@ -162,6 +162,15 @@ def validate_config(config: dict[str, Any]) -> None:
         for field in ("source_path", "repository", "base_branch"):
             if not _path(project.get(field)):
                 raise ConfigurationFailure(f"project {name} requires {field}")
+        if "pull_request_draft" in project and not isinstance(project["pull_request_draft"], bool):
+            raise ConfigurationFailure(f"project {name} pull_request_draft must be a boolean")
+        workflows = project.get("maintenance_workflow_names")
+        if workflows is not None and (
+            not isinstance(workflows, list) or not workflows
+            or any(not _path(value) for value in workflows)
+            or len(set(workflows)) != len(workflows)
+        ):
+            raise ConfigurationFailure(f"project {name} maintenance_workflow_names must be unique names")
         commands = project.get("validation_commands")
         if not isinstance(commands, list) or not commands or any(
             not _command(command) for command in commands
@@ -183,11 +192,19 @@ def validate_config(config: dict[str, Any]) -> None:
             raise ConfigurationFailure(
                 f"project {name} workspace type must be linked-worktree"
             )
-        for field in ("setup_command", "cleanup_command"):
-            if not _command(workspace.get(field)):
-                raise ConfigurationFailure(
-                    f"project {name} workspace {field} must be a non-empty argv array"
-                )
+        setup_commands = workspace.get("setup_commands")
+        if setup_commands is not None:
+            if (
+                "setup_command" in workspace or not isinstance(setup_commands, list)
+                or not setup_commands or any(not _command(command) for command in setup_commands)
+            ):
+                raise ConfigurationFailure(f"project {name} workspace requires one setup form")
+        elif not _command(workspace.get("setup_command")):
+            raise ConfigurationFailure(f"project {name} workspace setup_command must be an argv array")
+        if not _command(workspace.get("cleanup_command")):
+            raise ConfigurationFailure(
+                f"project {name} workspace cleanup_command must be a non-empty argv array"
+            )
         token_file = workspace.get("management_token_file")
         if token_file is not None and not _path(token_file):
             raise ConfigurationFailure(

@@ -84,11 +84,11 @@ def atomic_json(path: Path, value: dict[str, Any]) -> None:
 
 def is_managed_ai_file(path: str) -> bool:
     normalized = Path(path).as_posix()
-    if normalized in {"AGENTS.md", "CLAUDE.md", "skills-lock.json"}:
+    if normalized in {"AGENTS.md", "CLAUDE.md", "skills-lock.json", "convex/AGENTS.md", "convex/CLAUDE.md", "convex/skills-lock.json"}:
         return True
     if normalized.startswith("convex/_generated/ai/"):
         return True
-    parts = Path(normalized).parts
+    parts = Path(normalized.removeprefix("convex/")).parts
     return (
         len(parts) >= 3
         and parts[0] in {".agents", ".claude"}
@@ -141,13 +141,17 @@ def managed_snapshot_files(workspace: Path) -> list[Path]:
             candidates.append(path)
         elif path.is_dir():
             candidates.extend(item for item in path.rglob("*") if item.is_file())
-    for root_name in (".agents", ".claude"):
-        skills = workspace / root_name / "skills"
-        if not skills.is_dir():
-            continue
-        for child in skills.iterdir():
-            if child.name.startswith("convex") and child.is_dir():
-                candidates.extend(item for item in child.rglob("*") if item.is_file())
+    for base in (workspace, workspace / "convex"):
+        for name in ("AGENTS.md", "CLAUDE.md", "skills-lock.json"):
+            if (base / name).is_file():
+                candidates.append(base / name)
+        for root_name in (".agents", ".claude"):
+            skills = base / root_name / "skills"
+            if not skills.is_dir():
+                continue
+            for child in skills.iterdir():
+                if child.name.startswith("convex") and child.is_dir():
+                    candidates.extend(item for item in child.rglob("*") if item.is_file())
     return sorted(set(candidates), key=lambda item: item.relative_to(workspace).as_posix())
 
 
@@ -223,12 +227,22 @@ def publish_snapshot(
     return project_root / "manifest.json"
 
 
+def convex_project_directory(workspace: Path) -> Path:
+    root = workspace.resolve()
+    for candidate in (root, root / "convex"):
+        resolved = candidate.resolve()
+        if resolved != root and root not in resolved.parents:
+            raise AiFilesRefreshFailure("Convex project directory escapes the checkout")
+        if (resolved / "convex.json").is_file():
+            return resolved
+    raise AiFilesRefreshFailure("project has no root or convex/convex.json")
+
+
 def refresh_project(project: dict[str, Any], state_root: Path) -> Path:
     source = Path(project["source_path"])
     if not (source / ".git").exists():
         raise AiFilesRefreshFailure(f"source checkout is not a Git repository: {source}")
-    if not (source / "convex.json").is_file():
-        raise AiFilesRefreshFailure(f"enabled project has no convex.json: {project['name']}")
+    convex_project_directory(source)
     origin = run(["git", "remote", "get-url", "origin"], cwd=source).strip()
     if github_repository_from_origin(origin).lower() != project["repository"].lower():
         raise AiFilesRefreshFailure(
@@ -267,7 +281,7 @@ def refresh_project(project: dict[str, Any], state_root: Path) -> Path:
                 raise AiFilesRefreshFailure("invalid base SHA in isolated Convex AI refresh")
             for command in project.get("ai_files_setup_commands", project.get("setup_commands", [])):
                 run(command, cwd=workspace)
-            run(["npx", "convex", "ai-files", "update"], cwd=workspace)
+            run(["npx", "convex", "ai-files", "update"], cwd=convex_project_directory(workspace))
             unexpected = [path for path in changed_paths(workspace) if not is_managed_ai_file(path)]
             if unexpected:
                 raise AiFilesRefreshFailure(

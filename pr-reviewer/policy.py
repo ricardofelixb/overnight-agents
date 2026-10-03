@@ -89,6 +89,15 @@ def validate_config(config: dict[str, Any], config_path: Path) -> list[str]:
             errors.append(f"duplicate project name: {name}")
         names.add(name)
         merged = defaults | project
+        if "maintenance_only" in merged and not isinstance(merged["maintenance_only"], bool):
+            errors.append(f"{name}: maintenance_only must be a boolean")
+        workflows = merged.get("maintenance_workflow_names")
+        if workflows is not None and (
+            not isinstance(workflows, list) or not workflows
+            or any(not isinstance(value, str) or not value or "\0" in value for value in workflows)
+            or len(set(workflows)) != len(workflows)
+        ):
+            errors.append(f"{name}: maintenance_workflow_names must be unique names")
         if not Path(project.get("source_path", "")).is_absolute():
             errors.append(f"{name}: source_path must be absolute")
         repository = project.get("repository", "")

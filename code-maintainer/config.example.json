@@ -58,6 +58,56 @@
       "context": {
         "docs_catalog": "./docs-catalog.example.json"
       }
+    },
+    {
+      "name": "agents-app",
+      "enabled": false,
+      "schedule": "0 18 * * *",
+      "source_path": "/absolute/path/to/agents-app",
+      "repository": "owner/agents-app",
+      "base_branch": "main",
+      "pull_request_draft": true,
+      "maintenance_workflow_names": [
+        "CI",
+        "Runtime Quality"
+      ],
+      "validation_commands": [
+        [
+          "pnpm",
+          "run",
+          "validate:pr"
+        ],
+        [
+          "uv",
+          "run",
+          "--directory",
+          "runtime",
+          "--frozen",
+          "python",
+          "scripts/validate.py"
+        ]
+      ],
+      "workspace": {
+        "type": "linked-worktree",
+        "setup_commands": [
+          [
+            "pnpm",
+            "install",
+            "--frozen-lockfile"
+          ],
+          [
+            "uv",
+            "sync",
+            "--directory",
+            "runtime",
+            "--frozen",
+            "--all-groups"
+          ]
+        ],
+        "cleanup_command": [
+          "runtime/scripts/cleanup-worktree.sh"
+        ]
+      }
     }
   ]
 }

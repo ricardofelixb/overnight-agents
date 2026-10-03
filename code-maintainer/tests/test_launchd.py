@@ -59,7 +59,7 @@ class MaintainerLaunchdTests(unittest.TestCase):
                                 "schedule": "0 13 * * *",
                             },
                             {
-                                "name": "agents",
+                                "name": "agents-app",
                                 "enabled": True,
                                 "schedule": "0 18 * * *",
                             },
@@ -74,7 +74,7 @@ class MaintainerLaunchdTests(unittest.TestCase):
             )
             self.assertEqual(
                 MODULE.enabled_project_jobs(json.loads(path.read_text())),
-                [("exac", "0 13 * * *"), ("agents", "0 18 * * *")],
+                [("exac", "0 13 * * *"), ("agents-app", "0 18 * * *")],
             )
 
     def test_install_writes_one_launch_agent_per_enabled_project(self) -> None:
@@ -101,11 +101,11 @@ class MaintainerLaunchdTests(unittest.TestCase):
                     "validation_commands": [["true"]],
                 },
                 {
-                    "name": "agents",
+                    "name": "agents-app",
                     "enabled": True,
                     "schedule": "0 18 * * *",
-                    "source_path": "/tmp/agents",
-                    "repository": "owner/agents",
+                    "source_path": "/tmp/agents-app",
+                    "repository": "owner/agents-app",
                     "base_branch": "main",
                     "environment_file": "/tmp/agents.env",
                     "validation_commands": [["true"]],
@@ -121,7 +121,7 @@ class MaintainerLaunchdTests(unittest.TestCase):
         with (
             mock.patch.object(MODULE.sys, "platform", "darwin"),
             mock.patch.object(MODULE.sys, "argv", ["install_launchd.py"]),
-            mock.patch.object(MODULE, "existing_labels", return_value=[MODULE.LEGACY_LABEL]),
+            mock.patch.object(MODULE, "existing_labels", return_value=[MODULE.LEGACY_LABEL, MODULE.project_label("agents")]),
             mock.patch.object(
                 MODULE, "SCRIPT_DIR", Path("/tmp/maintainer")
             ),
@@ -135,7 +135,8 @@ class MaintainerLaunchdTests(unittest.TestCase):
             installed,
             [
                 "removed com.overnight-agents.code-maintainer",
-                "installed com.overnight-agents.code-maintainer.agents",
+                "removed com.overnight-agents.code-maintainer.agents",
+                "installed com.overnight-agents.code-maintainer.agents-app",
                 "installed com.overnight-agents.code-maintainer.exac",
             ],
         )

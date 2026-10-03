@@ -178,6 +178,24 @@ class WebhookTests(unittest.TestCase):
         self.assertEqual(queue.jobs["delivery-ci"]["operation"], "maintenance_ci")
         self.assertEqual(queue.jobs["delivery-ci"]["head_sha"], "a" * 40)
 
+    def test_maintenance_only_monorepo_routes_both_workflows_and_ignores_comments(self) -> None:
+        application, queue = self.application()
+        application.projects["trusted/example"].update(
+            maintenance_only=True, maintenance_workflow_names=["CI", "Runtime Quality"]
+        )
+        _, result = application.handle("issue_comment", "comment", self.review_command_payload())
+        self.assertEqual(result["reason"], "maintenance_only")
+        for name in ("CI", "Runtime Quality"):
+            payload = self.workflow_run_payload()
+            payload["workflow_run"]["name"] = name
+            _, result = application.handle("workflow_run", name, payload)
+            self.assertEqual(result["status"], "queued")
+            self.assertEqual(queue.jobs[name]["workflow_name"], name)
+        payload["workflow_run"]["name"] = "Release Desktop Beta"
+        _, result = application.handle("workflow_run", "release", payload)
+        self.assertEqual(result["reason"], "workflow")
+        self.assertEqual(len(queue.jobs), 2)
+
     def test_unrelated_workflow_run_is_ignored(self) -> None:
         application, queue = self.application()
         payload = self.workflow_run_payload()

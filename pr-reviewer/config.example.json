@@ -68,6 +68,49 @@
       },
       "validation_commands": [["pnpm", "run", "validate"]],
       "mode": "repair"
+    },
+    {
+      "name": "agents-app",
+      "enabled": false,
+      "maintenance_only": true,
+      "source_path": "/absolute/path/to/agents-app",
+      "repository": "owner/agents-app",
+      "base_branch": "main",
+      "allowed_head_patterns": [
+        "code-maintain/*"
+      ],
+      "excluded_authors": [
+        "dependabot[bot]",
+        "app/dependabot"
+      ],
+      "allow_forks": false,
+      "ai_files_setup_commands": [
+        [
+          "pnpm",
+          "install",
+          "--frozen-lockfile"
+        ]
+      ],
+      "validation_commands": [
+        [
+          "pnpm",
+          "run",
+          "validate:pr"
+        ],
+        [
+          "uv",
+          "run",
+          "--directory",
+          "runtime",
+          "--frozen",
+          "python",
+          "scripts/validate.py"
+        ]
+      ],
+      "maintenance_workflow_names": [
+        "CI",
+        "Runtime Quality"
+      ]
     }
   ]
 }
